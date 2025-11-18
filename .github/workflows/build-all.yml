@@ -1,0 +1,99 @@
+# ==============================================================================
+#  GitHub Action: Build ALL APKs (Debug and Release) on Main Branch Update
+# ==============================================================================
+
+name: Build All APKs (Debug and Release)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      # --- 1. SETUP ---
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+      - name: 2. Set up JDK and Node.js
+        uses: actions/setup-java@v4
+        with: { java-version: '21', distribution: 'temurin' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm', cache-dependency-path: 'frontend' }
+      - name: 3. Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # --- 2. PREPARE ---
+      - name: 4. Install Frontend Dependencies
+        run: npm install
+        working-directory: ./frontend
+      - name: 5. Build Frontend Web App
+        run: npm run build
+        working-directory: ./frontend
+      - name: 6. Capacitor Sync
+        run: npx cap sync android
+        working-directory: ./frontend
+      - name: 7. Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+        working-directory: ./frontend/android
+      - name: 8. Generate Versioning Info
+        id: versioning
+        run: |
+          echo "version_name=dev-$(date +'%Y%m%d')-${{ github.sha_short }}" >> $GITHUB_OUTPUT
+          echo "version_code=${{ github.run_number }}" >> $GITHUB_OUTPUT
+
+      # --- 3. BUILD DEBUG APK ---
+      - name: 9. Build Debug APK
+        working-directory: ./frontend/android
+        run: ./gradlew assembleDebug -Dorg.gradle.java.home="$JAVA_HOME"
+
+      - name: 10. Upload Debug APK as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 摆牌-Debug-Build-${{ steps.versioning.outputs.version_name }}
+          path: frontend/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+
+      # --- 4. BUILD RELEASE APK ---
+      - name: 11. Decode and Place Keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > my-release-key.keystore
+
+      - name: 12. Build Signed Release APK
+        working-directory: ./frontend/android
+        run: |
+          ./gradlew assembleRelease -Dorg.gradle.java.home="$JAVA_HOME" \
+            -PappVersionCode=${{ steps.versioning.outputs.version_code }} \
+            -PappVersionName=${{ steps.versioning.outputs.version_name }} \
+            -Pandroid.injected.signing.store.file="${{ github.workspace }}/my-release-key.keystore" \
+            -Pandroid.injected.signing.store.password="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
+            -Pandroid.injected.signing.key.alias="${{ secrets.ANDROID_KEY_ALIAS }}" \
+            -Pandroid.injected.signing.key.password="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
+
+      - name: 13. Rename Release APK
+        working-directory: ./frontend/android/app/build/outputs/apk/release
+        run: mv app-release.apk 摆牌-Release-${{ steps.versioning.outputs.version_name }}.apk
+
+      - name: 14. Create GitHub Release with a single APK
+        uses: ncipollo/release-action@v1
+        with:
+          tag: release-${{ github.sha }}
+          name: "自动构建 - ${{ github.event.head_commit.message }}"
+          artifacts: "frontend/android/app/build/outputs/apk/release/*.apk"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          allowUpdates: true
+          prerelease: true
+          body: |
+            这是由 GitHub Actions 自动构建和发布的版本。
+
+            **正式版 (Release APK):**
+            - 包含在此次 Release 的附件中。
+            - 版本名: `${{ steps.versioning.outputs.version_name }}`
+            - 版本代码: `${{ steps.versioning.outputs.version_code }}`
+
+            **测试版 (Debug APK):**
+            - 请在本次 Action 运行记录的 "Artifacts" 中下载。
