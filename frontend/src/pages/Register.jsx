@@ -1,5 +1,4 @@
 
-// 文件路径: frontend/src/pages/Register.jsx
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { registerUser } from '../services/api';
@@ -19,11 +18,29 @@ const Register = () => {
       setError('密码长度至少6位');
       return;
     }
+
+    const registrationData = { phone, password };
+
+    // --- 在这里添加调试日志 ---
+    console.log("即将发起注册请求...");
+    console.log("请求方法: POST");
+    console.log("请求URL: /api/user/register.php");
+    console.log("请求数据:", registrationData);
+    // --- 调试日志结束 ---
+
     try {
-      await registerUser({ phone, password });
+      // 这里的 registerUser 内部是 axios.post
+      await registerUser(registrationData);
       setSuccess('注册成功！正在跳转到登录页面...');
       setTimeout(() => navigate('/login'), 2000);
     } catch (err) {
+      // --- 在这里添加错误日志 ---
+      console.error("注册请求失败:", err);
+      if (err.response) {
+        console.error("服务器响应状态:", err.response.status);
+        console.error("服务器响应数据:", err.response.data);
+      }
+      // --- 错误日志结束 ---
       setError(err.response?.data?.error || '注册失败');
     }
   };
