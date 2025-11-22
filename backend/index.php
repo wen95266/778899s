@@ -1,13 +1,12 @@
 <?php
 // backend/index.php
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/db_operations.php'; // 显式引入 DB
 require_once __DIR__ . '/functions.php';
 
-// 处理跨域头
 handle_cors();
 
 $endpoint = $_GET['endpoint'] ?? '';
-// 读取 JSON 输入
 $input = json_decode(file_get_contents('php://input'), true) ?? [];
 
 try {
@@ -42,7 +41,7 @@ try {
             break;
 
         default:
-            json_response(['status' => 'error', 'message' => 'API Endpoint Not Found: ' . $endpoint], 404);
+            json_response(['status' => 'error', 'message' => 'API Endpoint Not Found'], 404);
     }
 } catch (Exception $e) {
     json_response(['status' => 'error', 'message' => $e->getMessage()], 500);

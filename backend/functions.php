@@ -1,6 +1,7 @@
 <?php
 // backend/functions.php
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/db_operations.php'; // <--- 必须加上这一行！
 
 function json_response($data, $status = 200) {
     http_response_code($status);
@@ -16,7 +17,7 @@ function check_auth() {
             'lifetime' => 86400 * 7,
             'path' => '/',
             'domain' => '', 
-            'secure' => false, // HTTP 环境
+            'secure' => false,
             'httponly' => true,
             'samesite' => 'Lax'
         ]);
