@@ -1,113 +1,165 @@
-:root {
-    --primary: #007bff;
-    --bg: #f4f7f9;
-    --card-bg: #fff;
-    /* 处理刘海屏 */
-    --safe-top: env(safe-area-inset-top);
-    --safe-bottom: env(safe-area-inset-bottom);
-  }
-  
-  body {
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background-color: var(--bg);
-    color: #333;
-    /* 禁止 App 内长按选中文字 */
-    user-select: none;
-    -webkit-tap-highlight-color: transparent;
-  }
-  
-  /* 允许输入框输入 */
-  input, textarea {
-    user-select: auto;
-  }
-  
-  .app-container {
-    padding-top: var(--safe-top);
-    padding-bottom: var(--safe-bottom);
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
-  
-  .navbar {
-    background: var(--card-bg);
-    padding: 1rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    position: sticky;
-    top: 0;
-    z-index: 100;
-  }
-  
-  .navbar a {
-    text-decoration: none;
-    color: #333;
-    font-weight: bold;
-  }
-  
-  main {
-    flex: 1;
-    padding: 1rem;
-    max-width: 800px;
-    width: 100%;
-    margin: 0 auto;
-    box-sizing: border-box;
-  }
-  
-  .card {
-    background: var(--card-bg);
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin-bottom: 1rem;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-  }
-  
-  button {
-    background: var(--primary);
-    color: white;
-    border: none;
-    padding: 0.6rem 1.2rem;
-    border-radius: 8px;
-    font-size: 1rem;
-    cursor: pointer;
-  }
-  
-  button:active {
-    opacity: 0.8;
-  }
-  
-  input {
-    width: 100%;
-    padding: 0.8rem;
-    margin-bottom: 1rem;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    box-sizing: border-box;
-  }
-  
-  .btn-text {
-    background: none;
-    color: var(--primary);
-    padding: 0;
-  }
-  
-  /* 开奖球样式 */
+/* frontend/src/index.css */
+
+/* === 基础布局 === */
+.home-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-bottom: 2rem;
+}
+
+.loading-container {
+  text-align: center;
+  padding: 2rem;
+  color: #666;
+}
+
+.error-card {
+  background: #ffebee;
+  color: #c62828;
+  padding: 1rem;
+  border-radius: 8px;
+  text-align: center;
+}
+
+/* === 彩票卡片 === */
+.lottery-card {
+  border-left: 5px solid transparent;
+  overflow: hidden;
+}
+
+/* 为不同彩种设置不同的左边框颜色，方便区分 */
+.lottery-card:nth-child(1) { border-left-color: #e91e63; } /* 香港 - 粉红 */
+.lottery-card:nth-child(2) { border-left-color: #3f51b5; } /* 新澳 - 蓝 */
+.lottery-card:nth-child(3) { border-left-color: #009688; } /* 老澳 - 绿 */
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid #f0f0f0;
+  padding-bottom: 0.5rem;
+}
+
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.card-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #333;
+  font-weight: 700;
+}
+
+.issue-tag {
+  background: #f5f5f5;
+  color: #666;
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.date-row {
+  font-size: 0.8rem;
+  color: #999;
+}
+
+/* === 球的布局 === */
+.balls-layout {
+  display: flex;
+  align-items: flex-start; /* 顶部对齐 */
+  justify-content: space-between;
+  flex-wrap: nowrap; /* 禁止换行，防止手机上错位 */
+}
+
+.normal-balls {
+  display: flex;
+  gap: 4px; /* 球之间的间距 */
+  flex-wrap: wrap; /* 如果屏幕极小允许换行，但在正常手机上应该一行 */
+  justify-content: center;
+}
+
+.plus-sign {
+  font-size: 1.5rem;
+  color: #ccc;
+  margin: 0 4px;
+  padding-top: 2px; /* 视觉微调 */
+  font-weight: 300;
+}
+
+.special-ball {
+  /* 特码区域 */
+}
+
+/* === 球的样式 (拟物化) === */
+.ball-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.lottery-ball {
+  width: 36px; /* 稍微调大一点 */
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 1rem;
+  color: white;
+  text-shadow: 1px 1px 1px rgba(0,0,0,0.3);
+  box-shadow: 2px 2px 5px rgba(0,0,0,0.2), inset -3px -3px 5px rgba(0,0,0,0.2), inset 2px 2px 5px rgba(255,255,255,0.3);
+  font-family: monospace; /* 等宽字体数字更好看 */
+}
+
+/* 颜色渐变 */
+.ball-red {
+  background: radial-gradient(circle at 30% 30%, #ff5252, #d50000);
+}
+
+.ball-green {
+  background: radial-gradient(circle at 30% 30%, #69f0ae, #2e7d32);
+}
+
+.ball-blue {
+  background: radial-gradient(circle at 30% 30%, #448aff, #1565c0);
+}
+
+.ball-grey {
+  background: radial-gradient(circle at 30% 30%, #cfd8dc, #90a4ae);
+}
+
+/* 生肖文字 */
+.ball-meta {
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: #555;
+}
+
+/* === 刷新提示 === */
+.refresh-hint {
+  text-align: center;
+  margin-top: 1rem;
+  font-size: 0.8rem;
+  color: #999;
+}
+
+/* === 响应式微调 (针对小屏手机) === */
+@media (max-width: 380px) {
   .lottery-ball {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-weight: bold;
-    margin: 2px;
-    font-size: 1.2rem;
+    width: 30px;
+    height: 30px;
+    font-size: 0.9rem;
   }
-  
-  .ball-red { background: linear-gradient(135deg, #ff4d4d, #cc0000); }
-  .ball-green { background: linear-gradient(135deg, #4dff88, #009933); }
-  .ball-blue { background: linear-gradient(135deg, #4da6ff, #0055cc); }
+  .normal-balls {
+    gap: 2px;
+  }
+  .plus-sign {
+    margin: 0 2px;
+  }
+}
