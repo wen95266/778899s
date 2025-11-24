@@ -1,4 +1,9 @@
 <?php
+/**
+ * 全能版 Lottery Bot Webhook
+ * 功能：频道监听录入、私聊管理、数据修正、自动清理、预测控制
+ */
+
 require_once 'utils/Env.php';
 require_once 'utils/Db.php';
 require_once 'utils/LotteryLogic.php';
@@ -6,12 +11,16 @@ require_once 'utils/Settings.php';
 
 Env::load(__DIR__ . '/.env');
 
-// --- 辅助函数 ---
+// --- 基础配置 ---
+$KEEP_LIMIT = 100; // "清理旧数据"时，保留最近多少期
+
+// --- 辅助函数：发送消息 ---
 function sendMsg($chatId, $text, $keyboard = null) {
     $token = trim($_ENV['TG_BOT_TOKEN']);
     $url = "https://api.telegram.org/bot$token/sendMessage";
     $data = ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'Markdown'];
     if ($keyboard) $data['reply_markup'] = json_encode($keyboard);
+    
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_POST, 1);
@@ -22,26 +31,31 @@ function sendMsg($chatId, $text, $keyboard = null) {
     curl_close($ch);
 }
 
-// --- 强力清洗函数 (核心修复) ---
+// --- 辅助函数：强力文本清洗 ---
 function cleanText($text) {
-    // 1. 将 URL 编码转回
     $text = urldecode($text);
-    
-    // 2. 核心：使用 Unicode 属性 \p{Z} 匹配所有种类的空格/不可见字符
-    // 这一步能解决 NBSP、全角空格、Tab 等所有导致正则失效的符号
-    $text = preg_replace('/\p{Z}+/u', ' ', $text);
-    
-    // 3. 去除所有非打印字符
-    $text = preg_replace('/\p{C}+/u', ' ', $text);
-    
-    // 4. 将连续的普通空格合并
-    $text = preg_replace('/\s+/', ' ', $text);
-    
+    $text = preg_replace('/\p{Z}+/u', ' ', $text); // 替换所有Unicode空格
+    $text = preg_replace('/\p{C}+/u', ' ', $text); // 替换控制字符
+    $text = preg_replace('/\s+/', ' ', $text);     // 合并空格
     return trim($text);
 }
 
+// --- 辅助函数：刷新预测结果 ---
+// 当数据变动（录入、删除）时调用此函数
+function refreshPrediction() {
+    $pdo = Db::connect();
+    $stmt = $pdo->query("SELECT * FROM lottery_records ORDER BY issue DESC LIMIT 100");
+    $history = $stmt->fetchAll();
+    if ($history) {
+        $pred = LotteryLogic::predict($history);
+        Settings::set('current_prediction', json_encode($pred));
+        return true;
+    }
+    return false;
+}
+
 // ==========================================
-// 1. 入口验证
+// 1. 安全验证
 // ==========================================
 $secretHeader = $_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? '';
 if ($secretHeader !== trim($_ENV['TG_SECRET_TOKEN'])) {
@@ -51,6 +65,7 @@ if ($secretHeader !== trim($_ENV['TG_SECRET_TOKEN'])) {
 $content = file_get_contents("php://input");
 $update = json_decode($content, true);
 
+// 识别消息类型
 $msgType = '';
 if (isset($update['channel_post'])) $msgType = 'channel_post';
 elseif (isset($update['message'])) $msgType = 'message';
@@ -61,81 +76,58 @@ $rawText = $data['text'] ?? '';
 $chatId = $data['chat']['id'];
 
 // ==========================================
-// 2. 录入逻辑
+// 2. 核心业务：开奖号码录入 (频道+私聊通用)
 // ==========================================
 
-// 第一步：清洗
+// 预处理文本
 $text = cleanText($rawText);
 
-// 第二步：提取期号
-// 匹配：第2025xxx期，中间允许有冒号和空格
+// 匹配期号：支持 "第:2025xxx期"
 preg_match('/第[:：]?\s*(\d+)\s*期/u', $text, $issueMatch);
 
 if (!empty($issueMatch)) {
     $issue = $issueMatch[1];
     
-    // 技巧：先从文本中把期号去掉，防止期号里的数字干扰号码提取
-    // 例如期号是 2025316，里面有 20, 25, 16 等数字
+    // 移除期号部分，避免干扰号码提取
     $textWithoutIssue = str_replace($issue, '', $text);
-
-    // 第三步：提取号码 (使用更稳健的正则)
-    // (?<!\d) 表示前面不能是数字，(?!\d) 表示后面不能是数字
-    // 这比 \b 更能适应复杂环境
+    
+    // 匹配号码：查找独立的两位数字 (01-49)
     preg_match_all('/(?<!\d)(\d{2})(?!\d)/', $textWithoutIssue, $numMatches);
-
-    // 过滤一下，只保留合理的彩票数字 (1-49)
-    // 这一步可选，但能防止提取到比如 "99" 这种异常干扰项
+    
     $validNums = [];
-    foreach ($numMatches[1] as $n) { // 注意这里是 index 1
+    foreach ($numMatches[1] as $n) {
         $val = intval($n);
-        if ($val >= 1 && $val <= 49) {
-            $validNums[] = $n;
-        }
+        if ($val >= 1 && $val <= 49) $validNums[] = $n;
     }
 
-    // 如果找到了至少 7 个有效数字
     if (count($validNums) >= 7) {
-        // 默认取前 7 个
         $nums = array_slice($validNums, 0, 7);
-        
         try {
             $pdo = Db::connect();
-            
-            // 插入或更新
             $sql = "INSERT INTO lottery_records (issue, n1, n2, n3, n4, n5, n6, spec) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON DUPLICATE KEY UPDATE 
                     n1=?, n2=?, n3=?, n4=?, n5=?, n6=?, spec=?";
-                    
             $stmt = $pdo->prepare($sql);
             $params = array_merge([$issue], $nums, $nums);
             $stmt->execute($params);
             
-            // 立即生成预测并保存
-            $stmtAll = $pdo->query("SELECT * FROM lottery_records ORDER BY issue DESC LIMIT 100");
-            $newPred = LotteryLogic::predict($stmtAll->fetchAll());
-            Settings::set('current_prediction', json_encode($newPred));
+            // 刷新预测
+            refreshPrediction();
             
-            // 如果是手动私聊发给 Bot 的，给个反馈
+            // 仅在私聊时回复，频道保持安静
             if ($msgType === 'message') {
-                sendMsg($chatId, "✅ 识别成功！\n第 {$issue} 期\n号码: " . implode(" ", $nums));
+                sendMsg($chatId, "✅ *录入成功*\n第 `{$issue}` 期\n号码: " . implode(" ", $nums));
             }
-            
         } catch (Exception $e) {
-            if ($msgType === 'message') sendMsg($chatId, "❌ 数据库错误: " . $e->getMessage());
+            if ($msgType === 'message') sendMsg($chatId, "❌ DB Error: " . $e->getMessage());
         }
-        
         echo 'ok'; exit;
-    } else {
-        // 仅在私聊时提示失败，频道里保持安静
-        if ($msgType === 'message' && strpos($rawText, '期') !== false) {
-            sendMsg($chatId, "⚠️ 格式识别失败：找到了期号 {$issue}，但只找到了 " . count($validNums) . " 个有效数字(01-49)。");
-        }
     }
 }
 
 // ==========================================
-// 3. 菜单逻辑 (保持不变)
+// 3. 管理员命令控制台 (仅私聊)
 // ==========================================
 
 if ($msgType === 'message') {
@@ -143,50 +135,107 @@ if ($msgType === 'message') {
     $adminId = trim($_ENV['TG_ADMIN_ID']);
 
     if ((string)$senderId === (string)$adminId) {
-        // ... 这里直接复制之前的 switch case 菜单逻辑 ...
-        // 为了代码完整性，这里补全最常用的部分：
+        
+        // 定义键盘菜单
         $mainKeyboard = [
             'keyboard' => [
-                [['text' => '🔮 生成/查看下期预测'], ['text' => '📊 查看最新录入']],
-                [['text' => '✅ 开启自动推送'], ['text' => '🛑 关闭自动推送']]
+                [['text' => '🔮 查看下期预测'], ['text' => '📊 查看最新录入']],
+                [['text' => '🗑 清理旧数据'], ['text' => '🔄 强制刷新']],
+                [['text' => '✅ 开启推送'], ['text' => '🛑 关闭推送']]
             ],
             'resize_keyboard' => true,
             'persistent_keyboard' => true
         ];
+
+        // --- 逻辑分支 ---
         
-        if ($rawText === '/start') {
-             sendMsg($chatId, "👋 管理员面板", $mainKeyboard);
-        } elseif ($rawText === '📊 查看最新录入') {
+        // 1. 基础菜单
+        if ($rawText === '/start' || $rawText === '/help') {
+            $msg = "🛠 *管理员控制台*\n\n";
+            $msg .= "📥 *录入数据*：直接发送 `第2025xxx期 01 02...`\n";
+            $msg .= "🗑 *删除单条*：发送 `删除2025999`\n";
+            $msg .= "🧹 *批量清理*：点击 `清理旧数据` (保留最近{$KEEP_LIMIT}条)\n";
+            sendMsg($chatId, $msg, $mainKeyboard);
+        }
+        
+        elseif ($rawText === '📊 查看最新录入') {
             $pdo = Db::connect();
             $stmt = $pdo->query("SELECT * FROM lottery_records ORDER BY issue DESC LIMIT 1");
             $row = $stmt->fetch();
             if ($row) {
                 sendMsg($chatId, "📅 *最新: 第 {$row['issue']} 期*\n🔢 `{$row['n1']} {$row['n2']} {$row['n3']} {$row['n4']} {$row['n5']} {$row['n6']} + {$row['spec']}`");
+            } else {
+                sendMsg($chatId, "📭 数据库为空");
             }
         }
-        // 其他菜单命令请保持原样...
-        // 为节省篇幅，建议你把之前的 switch case 块直接贴在这里
-        elseif ($rawText === '🔮 生成/查看下期预测') {
+        
+        elseif ($rawText === '🔮 查看下期预测') {
             $json = Settings::get('current_prediction');
             $pred = json_decode($json, true);
+            
+            // 获取最新期号
             $pdo = Db::connect();
             $stmt = $pdo->query("SELECT issue FROM lottery_records ORDER BY issue DESC LIMIT 1");
             $row = $stmt->fetch();
             $nextIssue = $row ? $row['issue'] + 1 : '???';
+
             if ($pred) {
                 $sxStr = implode(" ", $pred['six_xiao']);
                 $colorMap = ['red'=>'🔴','blue'=>'🔵','green'=>'🟢'];
                 $wave = $colorMap[$pred['color_wave']] ?? '';
-                sendMsg($chatId, "🔮 *第 {$nextIssue} 期 预测*\n六肖：`{$sxStr}`\n波色：{$wave}色");
+                sendMsg($chatId, "🔮 *第 {$nextIssue} 期 预测*\n\n六肖：`{$sxStr}`\n波色：{$wave}色\n\n_前端页面已同步_");
             } else {
-                sendMsg($chatId, "❌ 无预测数据");
+                sendMsg($chatId, "❌ 暂无预测数据");
             }
         }
-        elseif ($rawText === '✅ 开启自动推送') {
-            Settings::set('push_enabled', '1'); sendMsg($chatId, "✅ 已开启");
+        
+        // 2. 推送控制
+        elseif ($rawText === '✅ 开启推送') {
+            Settings::set('push_enabled', '1'); sendMsg($chatId, "✅ 自动推送已开启");
         }
-        elseif ($rawText === '🛑 关闭自动推送') {
-            Settings::set('push_enabled', '0'); sendMsg($chatId, "🛑 已关闭");
+        elseif ($rawText === '🛑 关闭推送') {
+            Settings::set('push_enabled', '0'); sendMsg($chatId, "🛑 自动推送已关闭");
+        }
+        
+        // 3. 高级维护功能
+        elseif ($rawText === '🔄 强制刷新') {
+            if (refreshPrediction()) {
+                sendMsg($chatId, "✅ 已重新运行算法并更新前端缓存。");
+            } else {
+                sendMsg($chatId, "❌ 数据库为空，无法生成预测。");
+            }
+        }
+        
+        elseif ($rawText === '🗑 清理旧数据') {
+            $pdo = Db::connect();
+            // 先查询第 100 条的期号
+            $stmt = $pdo->prepare("SELECT issue FROM lottery_records ORDER BY issue DESC LIMIT 1 OFFSET ?");
+            $stmt->execute([$KEEP_LIMIT - 1]);
+            $boundary = $stmt->fetchColumn();
+            
+            if ($boundary) {
+                $delStmt = $pdo->prepare("DELETE FROM lottery_records WHERE issue < ?");
+                $delStmt->execute([$boundary]);
+                $count = $delStmt->rowCount();
+                sendMsg($chatId, "🧹 清理完成\n已删除第 {$boundary} 期之前的 {$count} 条旧记录。\n目前保留最近 {$KEEP_LIMIT} 期。");
+            } else {
+                sendMsg($chatId, "⚠️ 数据量不足 {$KEEP_LIMIT} 条，无需清理。");
+            }
+        }
+        
+        // 4. 正则指令：删除指定期号
+        elseif (preg_match('/^删除(\d+)$/', $rawText, $delMatch)) {
+            $delIssue = $delMatch[1];
+            $pdo = Db::connect();
+            $stmt = $pdo->prepare("DELETE FROM lottery_records WHERE issue = ?");
+            $stmt->execute([$delIssue]);
+            
+            if ($stmt->rowCount() > 0) {
+                refreshPrediction(); // 删除后必须重算
+                sendMsg($chatId, "🗑 已删除第 `{$delIssue}` 期。\n预测结果已自动校准。");
+            } else {
+                sendMsg($chatId, "⚠️ 未找到第 `{$delIssue}` 期。");
+            }
         }
     }
 }
