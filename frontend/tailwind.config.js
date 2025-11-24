@@ -7,19 +7,22 @@ export default {
   theme: {
     extend: {
       colors: {
-        lottery: {
-          red: '#e73f3f',
-          red_dark: '#b91c1c',
-          green: '#38bdf8', // 修正：波色里的“绿”通常指 emerald/green
-          green_real: '#10b981',
-          green_dark: '#047857',
-          blue: '#3b82f6',
-          blue_dark: '#1d4ed8',
-          gold: '#f59e0b',
+        // 自定义波色颜色
+        red: {
+          500: '#ef4444',
+          600: '#dc2626',
+          900: '#7f1d1d',
+        },
+        blue: {
+          500: '#3b82f6',
+          600: '#2563eb',
+          900: '#1e3a8a',
+        },
+        emerald: {
+          500: '#10b981',
+          600: '#059669',
+          900: '#064e3b',
         }
-      },
-      boxShadow: {
-        'ball': 'inset -2px -2px 6px rgba(0,0,0,0.3), inset 2px 2px 6px rgba(255,255,255,0.4), 2px 4px 6px rgba(0,0,0,0.2)',
       }
     },
   },
