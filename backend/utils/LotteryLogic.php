@@ -1,179 +1,304 @@
 <?php
 require_once 'ZodiacManager.php';
+require_once 'Db.php';
 
 class LotteryLogic {
     
-    /**
-     * 核心辅助：获取数字特征
-     */
-    private static function getNumFeatures($num) {
-        $n = intval($num);
+    // ==================================================================
+    // 基础工具区
+    // ==================================================================
+    private static function getFullAttr($num) {
+        $info = ZodiacManager::getInfo($num);
         return [
-            'tail' => $n % 10, // 尾数
-            'head' => floor($n / 10), // 头数
-            'zodiac' => ZodiacManager::getInfo($n)['zodiac'],
-            'color' => ZodiacManager::getInfo($n)['color'],
-            'element' => ZodiacManager::getInfo($n)['element']
+            'zodiac' => $info['zodiac'],
+            'color'  => $info['color'],
+            'element'=> $info['element'],
+            'tail'   => $num % 10,
+            'head'   => floor($num / 10),
+            'odd'    => ($num % 2 != 0),
+            'big'    => ($num >= 25),
+            'val'    => intval($num)
         ];
     }
 
-    /**
-     * 策略 A: 尾数追踪法 (Tail Tracking)
-     * 统计最近 7 个号码的尾数热度，推算下期特码尾数
-     */
-    private static function scoreByTail($history, &$scores) {
+    private static function initScoreBoard() {
         $zodiacMap = ZodiacManager::getMapping();
-        $tailCounts = array_fill(0, 10, 0);
+        return array_fill_keys(array_keys($zodiacMap), 0);
+    }
 
-        // 统计最近 5 期的所有号码(平码+特码)的尾数
-        for ($i = 0; $i < 5; $i++) {
-            $row = $history[$i];
-            for ($j = 1; $j <= 6; $j++) $tailCounts[$row["n$j"] % 10]++;
-            $tailCounts[$row['spec'] % 10] += 2; // 特码尾数权重加倍
+    private static function normalize(&$scores) {
+        $max = max($scores);
+        if ($max == 0) return;
+        foreach ($scores as $k => $v) {
+            $scores[$k] = ($v / $max) * 100;
         }
+    }
 
-        // 找出最热的 3 个尾数
+    // ==================================================================
+    // 十大算法模型 (V6.0 泰坦矩阵)
+    // ==================================================================
+
+    private static function model_Trend($history) {
+        $scores = self::initScoreBoard();
+        $weights = [10 => 3.0, 20 => 1.5, 50 => 0.5];
+        foreach ($weights as $limit => $w) {
+            $slice = array_slice($history, 0, min(count($history), $limit));
+            foreach ($slice as $row) {
+                $z = ZodiacManager::getInfo($row['spec'])['zodiac'];
+                $scores[$z] += $w;
+            }
+        }
+        self::normalize($scores);
+        return $scores;
+    }
+
+    private static function model_Omission($history) {
+        $scores = self::initScoreBoard();
+        foreach (array_keys($scores) as $z) {
+            $omission = 0;
+            foreach ($history as $row) {
+                if (ZodiacManager::getInfo($row['spec'])['zodiac'] === $z) break;
+                $omission++;
+            }
+            $scores[$z] += floor($omission / 10) * 20; 
+        }
+        self::normalize($scores);
+        return $scores;
+    }
+
+    private static function model_ZodiacLink($history) {
+        $scores = self::initScoreBoard();
+        if (empty($history)) return $scores;
+        $lastZ = ZodiacManager::getInfo($history[0]['spec'])['zodiac'];
+        $related = ZodiacManager::getRelatedZodiacs($lastZ);
+        foreach ($related as $r) $scores[$r] += 80;
+        self::normalize($scores);
+        return $scores;
+    }
+
+    private static function model_Tail($history) {
+        $scores = self::initScoreBoard();
+        $tailCounts = array_fill(0, 10, 0);
+        for ($i = 0; $i < min(count($history), 10); $i++) {
+            $tailCounts[intval($history[$i]['spec']) % 10]++;
+        }
         arsort($tailCounts);
         $hotTails = array_slice(array_keys($tailCounts), 0, 3);
-
-        // 给符合热尾数的生肖加分
-        foreach ($scores as $z => $s) {
-            $nums = $zodiacMap[$z];
-            foreach ($nums as $n) {
-                if (in_array($n % 10, $hotTails)) {
-                    $scores[$z] += 2; // 命中热尾加分
-                }
-            }
-        }
-    }
-
-    /**
-     * 策略 B: 五行缺失回补法 (Element Missing)
-     * 统计上一期 7 个号码的五行，找出没出现的五行，下期特码极大可能就是它
-     */
-    private static function scoreByElement($history, &$scores) {
-        $lastRow = $history[0];
-        $existElements = [];
-        
-        // 收集上期出现过的五行
-        for ($j = 1; $j <= 6; $j++) {
-            $existElements[] = ZodiacManager::getInfo($lastRow["n$j"])['element'];
-        }
-        $existElements[] = ZodiacManager::getInfo($lastRow['spec'])['element'];
-        $existElements = array_unique($existElements);
-
-        // 定义所有五行
-        $allElements = ['金', '木', '水', '火', '土'];
-        
-        // 找出缺失的五行
-        $missing = array_diff($allElements, $existElements);
-
-        // 给缺失五行的生肖加巨分
         $zodiacMap = ZodiacManager::getMapping();
-        foreach ($scores as $z => $s) {
-            $nums = $zodiacMap[$z];
-            foreach ($nums as $n) {
-                $e = ZodiacManager::getInfo($n)['element'];
-                if (in_array($e, $missing)) {
-                    $scores[$z] += 3; // 缺失回补权重很高
-                    break; 
-                }
+        foreach ($scores as $z => $v) {
+            foreach ($zodiacMap[$z] as $n) {
+                if (in_array($n % 10, $hotTails)) $scores[$z] += 15;
             }
         }
+        self::normalize($scores);
+        return $scores;
     }
 
-    /**
-     * 策略 C: 头数跟随法 (Head Following)
-     * 如果上期平码多为 2头(20-29)，下期特码容易开 2头
-     */
-    private static function scoreByHead($history, &$scores) {
-        $lastRow = $history[0];
-        $headCounts = array_fill(0, 5, 0); // 0-4头
-
-        for ($j = 1; $j <= 6; $j++) {
-            $h = floor($lastRow["n$j"] / 10);
-            $headCounts[$h]++;
+    private static function model_Head($history) {
+        $scores = self::initScoreBoard();
+        $headCounts = array_fill(0, 5, 0);
+        for ($i = 0; $i < min(count($history), 20); $i++) {
+            $headCounts[floor(intval($history[$i]['spec']) / 10)]++;
         }
-        
         arsort($headCounts);
-        $hotHead = array_key_first($headCounts); // 最热头数
-
+        $hotHead = array_key_first($headCounts);
         $zodiacMap = ZodiacManager::getMapping();
-        foreach ($scores as $z => $s) {
-            $nums = $zodiacMap[$z];
-            foreach ($nums as $n) {
-                if (floor($n / 10) == $hotHead) {
-                    $scores[$z] += 1.5;
+        foreach ($scores as $z => $v) {
+            foreach ($zodiacMap[$z] as $n) {
+                if (floor($n / 10) == $hotHead) $scores[$z] += 20;
+            }
+        }
+        self::normalize($scores);
+        return $scores;
+    }
+
+    private static function model_Color($history) {
+        $scores = self::initScoreBoard();
+        $colorStats = ['red'=>0, 'blue'=>0, 'green'=>0];
+        for ($i = 0; $i < min(count($history), 30); $i++) {
+            $c = ZodiacManager::getInfo($history[$i]['spec'])['color'];
+            $colorStats[$c]++;
+        }
+        asort($colorStats);
+        $weakColor = array_key_first($colorStats);
+        $zodiacMap = ZodiacManager::getMapping();
+        foreach ($scores as $z => $v) {
+            foreach ($zodiacMap[$z] as $n) {
+                if (ZodiacManager::getInfo($n)['color'] == $weakColor) $scores[$z] += 15;
+            }
+        }
+        self::normalize($scores);
+        return $scores;
+    }
+
+    private static function model_WuXing($history) {
+        $scores = self::initScoreBoard();
+        if (empty($history)) return $scores;
+        $lastElem = ZodiacManager::getInfo($history[0]['spec'])['element'];
+        $generate = ['金'=>'水', '水'=>'木', '木'=>'火', '火'=>'土', '土'=>'金'];
+        $targetElem = $generate[$lastElem] ?? '';
+        $zodiacMap = ZodiacManager::getMapping();
+        foreach ($scores as $z => $v) {
+            foreach ($zodiacMap[$z] as $n) {
+                if (ZodiacManager::getInfo($n)['element'] == $targetElem) {
+                    $scores[$z] += 50; break;
                 }
             }
         }
+        self::normalize($scores);
+        return $scores;
     }
 
-    /**
-     * 策略 D: 综合走势 (Classic Trend)
-     * 保留之前的经典热度分析，作为保底
-     */
-    private static function scoreByTrend($history, &$scores) {
-        for ($i = 0; $i < 20; $i++) {
-            $z = ZodiacManager::getInfo($history[$i]['spec'])['zodiac'];
-            $scores[$z] += 2; // 简单热度
+    private static function model_HistoryMatch($history) {
+        $scores = self::initScoreBoard();
+        if (count($history) < 20) return $scores;
+        $current = self::getFullAttr($history[0]['spec']);
+        for ($i = 2; $i < count($history); $i++) {
+            $past = self::getFullAttr($history[$i]['spec']);
+            $sim = 0;
+            if ($current['zodiac'] == $past['zodiac']) $sim += 30;
+            if ($current['color'] == $past['color']) $sim += 20;
+            if ($current['tail'] == $past['tail']) $sim += 20;
+            if ($current['element'] == $past['element']) $sim += 10;
+            if ($sim >= 50) {
+                $nextZ = ZodiacManager::getInfo($history[$i-1]['spec'])['zodiac'];
+                $scores[$nextZ] += $sim;
+            }
         }
+        self::normalize($scores);
+        return $scores;
     }
 
-    /**
-     * 杀号逻辑 (Killer)
-     * 杀掉上一期的特码生肖 (连庄概率其实很低，杀掉它是大概率正确的)
-     */
-    private static function applyKiller($history, &$scores) {
+    private static function model_FlatCode($history) {
+        $scores = self::initScoreBoard();
+        if (empty($history)) return $scores;
+        $row = $history[0];
+        for ($i=1; $i<=6; $i++) {
+            $z = ZodiacManager::getInfo($row["n$i"])['zodiac'];
+            $scores[$z] += 15;
+        }
+        self::normalize($scores);
+        return $scores;
+    }
+
+    private static function model_Offset($history) {
+        $scores = self::initScoreBoard();
+        if (empty($history)) return $scores;
+        $lastNum = intval($history[0]['spec']);
+        $offsets = [1, -1, 10, -10, 12, -12];
+        foreach ($offsets as $off) {
+            $target = $lastNum + $off;
+            if ($target > 49) $target -= 49;
+            if ($target < 1) $target += 49;
+            $z = ZodiacManager::getInfo($target)['zodiac'];
+            $scores[$z] += 20;
+        }
+        self::normalize($scores);
+        return $scores;
+    }
+
+    private static function getKiller($scores, $history) {
         $lastZ = ZodiacManager::getInfo($history[0]['spec'])['zodiac'];
-        $scores[$lastZ] -= 10; // 大幅扣分，变相杀肖
-        return $lastZ;
+        if (isset($scores[$lastZ])) $scores[$lastZ] -= 50; 
+        asort($scores);
+        return array_key_first($scores);
     }
 
-    /**
-     * 主预测入口
-     */
+    // ==================================================================
+    // 主预测方法
+    // ==================================================================
     public static function predict($history) {
-        if (count($history) < 10) return []; // 数据太少不算
-
         $zodiacMap = ZodiacManager::getMapping();
-        $allZodiacs = array_keys($zodiacMap);
-        $scores = array_fill_keys($allZodiacs, 0);
+        $finalScores = self::initScoreBoard();
 
-        // --- 执行多维分析 ---
-        self::scoreByTail($history, $scores);    // 尾数维度
-        self::scoreByElement($history, $scores); // 五行维度
-        self::scoreByHead($history, $scores);    // 头数维度
-        self::scoreByTrend($history, $scores);   // 历史维度
-        
-        // --- 杀号 ---
-        $killed = self::applyKiller($history, $scores);
+        $modelWeights = [
+            'Trend'=>1.2, 'Omission'=>1.0, 'ZodiacLink'=>1.5, 'Tail'=>0.8, 
+            'Head'=>0.6, 'Color'=>0.8, 'WuXing'=>1.0, 'HistoryMatch'=>2.0, 
+            'FlatCode'=>1.0, 'Offset'=>0.5
+        ];
 
-        // --- 排序输出 ---
-        arsort($scores);
-        $ranked = array_keys($scores);
+        $models = [
+            'Trend' => self::model_Trend($history),
+            'Omission' => self::model_Omission($history),
+            'ZodiacLink' => self::model_ZodiacLink($history),
+            'Tail' => self::model_Tail($history),
+            'Head' => self::model_Head($history),
+            'Color' => self::model_Color($history),
+            'WuXing' => self::model_WuXing($history),
+            'HistoryMatch' => self::model_HistoryMatch($history),
+            'FlatCode' => self::model_FlatCode($history),
+            'Offset' => self::model_Offset($history)
+        ];
 
+        foreach ($models as $name => $mScores) {
+            foreach ($mScores as $z => $s) {
+                $finalScores[$z] += $s * $modelWeights[$name];
+            }
+        }
+
+        $killed = self::getKiller($finalScores, $history);
+        unset($finalScores[$killed]);
+
+        arsort($finalScores);
+        $ranked = array_keys($finalScores);
         $sixXiao = array_slice($ranked, 0, 6);
         $threeXiao = array_slice($ranked, 0, 3);
 
-        // --- 波色推算 (基于预测结果的前6肖所含号码的波色统计) ---
-        $waveCounts = ['red'=>0, 'blue'=>0, 'green'=>0];
-        foreach ($sixXiao as $z) {
-            $nums = $zodiacMap[$z];
-            foreach ($nums as $n) {
+        $waveStats = ['red'=>0, 'blue'=>0, 'green'=>0];
+        foreach ($threeXiao as $z) {
+            foreach ($zodiacMap[$z] as $n) {
                 $info = ZodiacManager::getInfo($n);
-                $waveCounts[$info['color']]++;
+                $w = ($info['element'] == '金' || $info['element'] == '水') ? 1.5 : 1;
+                $waveStats[$info['color']] += $w;
             }
         }
-        arsort($waveCounts);
-        $waves = array_keys($waveCounts);
+        arsort($waveStats);
+        $waves = array_keys($waveStats);
 
         return [
             'six_xiao' => $sixXiao,
             'three_xiao' => $threeXiao,
             'color_wave' => ['primary'=>$waves[0], 'secondary'=>$waves[1]],
-            'strategy_used' => "全维特征流 | 杀:{$killed}"
+            'strategy_used' => "V6泰坦矩阵 | 杀:{$killed}"
         ];
+    }
+
+    // ==================================================================
+    // 【新增】复盘核对功能
+    // ==================================================================
+    public static function verifyPrediction($issue, $specNum) {
+        $pdo = Db::connect();
+        
+        // 1. 查找该期的预测存档
+        $stmt = $pdo->prepare("SELECT * FROM prediction_history WHERE issue = ?");
+        $stmt->execute([$issue]);
+        $record = $stmt->fetch();
+        
+        if (!$record) return; // 没存过，无法复盘
+
+        // 2. 获取开奖结果
+        $info = ZodiacManager::getInfo($specNum);
+        $realZodiac = $info['zodiac'];
+        $realColor = $info['color'];
+
+        // 3. 对比
+        $sixArr = explode(',', $record['six_xiao']);
+        $threeArr = explode(',', $record['three_xiao']);
+        
+        $isHitSix = in_array($realZodiac, $sixArr) ? 1 : 0;
+        $isHitThree = in_array($realZodiac, $threeArr) ? 1 : 0;
+        $isHitWave = ($realColor == $record['wave_primary'] || $realColor == $record['wave_secondary']) ? 1 : 0;
+
+        // 4. 更新结果到数据库
+        $upd = $pdo->prepare("UPDATE prediction_history SET result_zodiac=?, is_hit_six=?, is_hit_three=?, is_hit_wave=? WHERE issue=?");
+        $upd->execute([$realZodiac, $isHitSix, $isHitThree, $isHitWave, $issue]);
+
+        // 5. 如果没中，记录失败原因日志
+        if ($isHitSix == 0) {
+            $reason = "开奖[{$realZodiac}]不在预测[{$record['six_xiao']}]内。模型需调整权重。";
+            $log = $pdo->prepare("INSERT INTO learning_logs (issue, error_reason) VALUES (?, ?)");
+            $log->execute([$issue, $reason]);
+        }
     }
 }
 ?>
