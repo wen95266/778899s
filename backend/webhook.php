@@ -16,7 +16,6 @@ function sendMsg($chatId, $text, $keyboard = null) {
     $url = "https://api.telegram.org/bot$token/sendMessage";
     $data = ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'Markdown'];
     if ($keyboard) $data['reply_markup'] = json_encode($keyboard);
-    
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_POST, 1);
@@ -76,7 +75,6 @@ $data = $update[$msgType];
 $rawText = $data['text'] ?? ($data['caption'] ?? '');
 $chatId = $data['chat']['id'];
 
-// 1. 自动录入
 $text = cleanText($rawText);
 preg_match('/第[:：]?\s*(\d+)\s*期/u', $text, $issueMatch);
 
@@ -114,7 +112,6 @@ if (!empty($issueMatch)) {
     }
 }
 
-// 2. 菜单逻辑
 if ($msgType === 'message') {
     $senderId = $data['from']['id'];
     $adminId = trim($_ENV['TG_ADMIN_ID']);
@@ -154,12 +151,11 @@ if ($msgType === 'message') {
                 $threeStr = ""; foreach ($threeXiao as $sx) $threeStr .= ($sxEmoji[$sx]??'') . "*$sx* ";
                 $w1 = $cMap[$pred['color_wave']['primary']] ?? '';
                 $w2 = $cMap[$pred['color_wave']['secondary']] ?? '';
+                $bs = $pred['bs'] ?? '算';
+                $oe = $pred['oe'] ?? '算';
                 
-                // 提取杀号
                 $killedStr = '';
-                if (preg_match('/杀[:：](.+)/u', $pred['strategy_used'], $m)) {
-                    $killedStr = $m[1];
-                }
+                if (preg_match('/杀[:：](.+)/u', $pred['strategy_used'], $m)) $killedStr = $m[1];
 
                 $msg = "🕵️ *管理员预览*\n";
                 $msg .= "🎯 *第 {$nextIssue} 期*\n";
@@ -168,7 +164,8 @@ if ($msgType === 'message') {
                 $msg .= "🦁 *六肖*：{$sixStr}\n";
                 $msg .= "🔥 *三肖*：{$threeStr}\n";
                 $msg .= "🌊 *波色*：{$w1} / {$w2}\n";
-                $msg .= "👊 *主攻*：{$w1}";
+                $msg .= "👊 *主攻*：{$w1}\n";
+                $msg .= "⚖️ *大小*：{$bs}  |  *单双*：{$oe}";
                 sendMsg($chatId, $msg);
             } else sendMsg($chatId, "❌ 无数据");
         }
