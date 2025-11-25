@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom'; // 引入 Link
+import { Link } from 'react-router-dom';
 import Ball from './components/Ball';
 
 function App() {
   const [data, setData] = useState(null);
-  // const [predHistory, setPredHistory] = useState([]); // 首页不需要加载战绩了
   const [loading, setLoading] = useState(true);
   const [limit, setLimit] = useState(50);
   const [expanding, setExpanding] = useState(false);
@@ -14,8 +13,6 @@ function App() {
       const res = await fetch(`${import.meta.env.VITE_API_URL}?action=get_data&limit=${currentLimit}&t=${Date.now()}`);
       const json = await res.json();
       if (json.status === 'success') setData(json.data);
-      
-      // 移除了 get_history 请求，提升首页速度
     } catch (error) {
       console.error(error);
     } finally {
@@ -31,7 +28,7 @@ function App() {
     setLimit(limit + 50);
   };
 
-  if (loading && limit === 50) return <div className="h-screen flex items-center justify-center text-gray-400 bg-gray-50">智能分析中...</div>;
+  if (loading && limit === 50) return <div className="h-screen flex items-center justify-center text-gray-400 bg-gray-50">AI 计算中...</div>;
   if (!data || !data.history || data.history.length === 0) return <div className="p-10 text-center text-gray-500">暂无数据</div>;
 
   const latestDraw = data.history[0];
@@ -45,6 +42,9 @@ function App() {
   
   let w1 = 'red', w2 = 'blue';
   if (pred.color_wave) { w1 = pred.color_wave.primary; w2 = pred.color_wave.secondary; }
+
+  const bs = pred.bs || '-';
+  const oe = pred.oe || '-';
 
   const strategyStr = pred.strategy_used || '';
   const killedMatch = strategyStr.match(/杀[:：](.+)/);
@@ -61,13 +61,9 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-100 font-sans pb-10">
       
-      {/* === 顶部 Header (精简版) === */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
         <div className="max-w-2xl mx-auto px-4 h-12 flex items-center justify-between">
-          {/* 左侧：仅保留标题 */}
           <h1 className="text-lg font-bold text-gray-800 tracking-tight">六合AI分析</h1>
-          
-          {/* 右侧：战绩入口按钮 */}
           <Link to="/history" className="text-xs font-medium text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full hover:bg-indigo-100 transition-colors flex items-center gap-1">
             <span>📋 战绩记录</span>
           </Link>
@@ -88,6 +84,8 @@ function App() {
                 </div>
              </div>
           </div>
+          
+          {/* 三肖 */}
           <div className="mb-4">
             <div className="flex items-center gap-2 mb-2"><span className="text-xs font-bold text-yellow-400">🔥 核心三肖</span></div>
             <div className="grid grid-cols-3 gap-3">
@@ -96,16 +94,28 @@ function App() {
               ))}
             </div>
           </div>
-          <div className="flex gap-3 mb-4">
-             <div className="flex-1 bg-slate-800/60 rounded-lg p-2 border border-slate-700 flex items-center justify-between">
-                <span className="text-xs text-gray-400">推荐</span>
-                <div className="font-bold text-sm"><span className={`mr-1 ${waveTextStyles[w1]}`}>{waveNames[w1]}</span>/<span className={`ml-1 ${waveTextStyles[w2]}`}>{waveNames[w2]}</span></div>
-             </div>
-             <div className={`flex-1 rounded-lg p-2 border flex flex-col items-center justify-center relative overflow-hidden ${waveStyles[w1]}`}>
+
+          {/* 综合推荐区 (波色 + 大小单双) */}
+          <div className="grid grid-cols-2 gap-3 mb-4">
+             {/* 左：波色 */}
+             <div className={`rounded-lg p-2 border flex flex-col items-center justify-center relative overflow-hidden ${waveStyles[w1]}`}>
                 <div className="absolute top-0 left-0 bg-white/20 text-[8px] px-1 rounded-br">主攻</div>
                 <div className="font-bold text-lg leading-none">{waveNames[w1]}波</div>
+                <div className="text-[10px] opacity-80 mt-1">防: {waveNames[w2]}</div>
+             </div>
+             {/* 右：大小单双 */}
+             <div className="bg-slate-800/60 rounded-lg p-2 border border-slate-700 flex flex-col justify-between">
+                <div className="flex justify-between items-center border-b border-slate-600/50 pb-1">
+                   <span className="text-[10px] text-gray-400">推荐大小</span>
+                   <span className="font-bold text-yellow-400">{bs}</span>
+                </div>
+                <div className="flex justify-between items-center pt-1">
+                   <span className="text-[10px] text-gray-400">推荐单双</span>
+                   <span className="font-bold text-cyan-400">{oe}</span>
+                </div>
              </div>
           </div>
+
           <div className="flex items-center gap-2 opacity-60">
              <span className="text-xs">防守:</span>
              <div className="flex gap-1">{sixXiao.slice(3).map((z, i) => <span key={i} className="text-xs font-mono bg-white/10 px-1.5 rounded">{z}</span>)}</div>
@@ -114,9 +124,6 @@ function App() {
       </div>
 
       <div className="max-w-2xl mx-auto space-y-4 pt-4 px-3">
-        
-        {/* 原来的战绩列表已被移除 */}
-
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
           <div className="text-center mb-4 relative">
              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
