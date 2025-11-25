@@ -20,9 +20,15 @@ $action = $_GET['action'] ?? '';
 try {
     $pdo = Db::connect();
 
+    // 1. 获取主数据 (历史 + 预测)
     if ($action === 'get_data') {
-        // 1. 获取历史
-        $stmt = $pdo->query("SELECT * FROM lottery_records ORDER BY issue DESC LIMIT 50");
+        $limit = isset($_GET['limit']) ? intval($_GET['limit']) : 50;
+        if ($limit > 500) $limit = 500;
+        if ($limit < 10) $limit = 10;
+
+        $stmt = $pdo->prepare("SELECT * FROM lottery_records ORDER BY issue DESC LIMIT ?");
+        $stmt->bindValue(1, $limit, PDO::PARAM_INT);
+        $stmt->execute();
         $history = $stmt->fetchAll();
 
         $processedHistory = [];
@@ -39,7 +45,6 @@ try {
             ];
         }
 
-        // 2. 获取预测
         $savedJson = Settings::get('current_prediction');
         if ($savedJson) {
             $prediction = json_decode($savedJson, true);
@@ -50,6 +55,9 @@ try {
             Settings::set('current_prediction', json_encode($prediction));
         }
 
+        $countStmt = $pdo->query("SELECT COUNT(*) FROM lottery_records");
+        $totalCount = $countStmt->fetchColumn();
+        
         $nextIssue = isset($history[0]) ? $history[0]['issue'] + 1 : '???';
 
         echo json_encode([
@@ -57,10 +65,19 @@ try {
             'data' => [
                 'history' => $processedHistory,
                 'prediction' => $prediction,
-                'next_issue' => $nextIssue
+                'next_issue' => $nextIssue,
+                'total_count' => $totalCount
             ]
         ]);
-    } else {
+    } 
+    // 2. 【新增】获取预测历史战绩
+    elseif ($action === 'get_history') {
+        // 只返回已开奖的(即result_zodiac有值)
+        $stmt = $pdo->query("SELECT * FROM prediction_history WHERE result_zodiac IS NOT NULL ORDER BY issue DESC LIMIT 20");
+        $list = $stmt->fetchAll();
+        echo json_encode(['status'=>'success', 'data'=>$list]);
+    }
+    else {
         echo json_encode(['status' => 'error', 'message' => 'Invalid action']);
     }
 
