@@ -4,21 +4,8 @@ require_once 'Db.php';
 
 class LotteryLogic {
     
-    // ==================================================================
-    // 基础工具区
-    // ==================================================================
     private static function getFullAttr($num) {
-        $info = ZodiacManager::getInfo($num);
-        return [
-            'zodiac' => $info['zodiac'],
-            'color'  => $info['color'],
-            'element'=> $info['element'],
-            'tail'   => $num % 10,
-            'head'   => floor($num / 10),
-            'odd'    => ($num % 2 != 0),
-            'big'    => ($num >= 25),
-            'val'    => intval($num)
-        ];
+        return ZodiacManager::getInfo($num);
     }
 
     private static function initScoreBoard() {
@@ -34,10 +21,7 @@ class LotteryLogic {
         }
     }
 
-    // ==================================================================
-    // 十大算法模型 (V6.0 泰坦矩阵)
-    // ==================================================================
-
+    // --- 现有模型 (保持不变) ---
     private static function model_Trend($history) {
         $scores = self::initScoreBoard();
         $weights = [10 => 3.0, 20 => 1.5, 50 => 0.5];
@@ -197,6 +181,37 @@ class LotteryLogic {
         return $scores;
     }
 
+    // --- 新增模型：大小单双趋势 ---
+    private static function predict_BS_OE($history) {
+        // 统计最近 20 期的大小单双
+        $bsTrend = [];
+        $oeTrend = [];
+        for ($i = 0; $i < min(count($history), 20); $i++) {
+            $info = ZodiacManager::getInfo($history[$i]['spec']);
+            $bsTrend[] = $info['bs'];
+            $oeTrend[] = $info['oe'];
+        }
+
+        // 简单逻辑：看最近 3 期是否连龙
+        // 如果连开 3 期大，下期推荐小；否则跟随上期
+        $lastBS = $bsTrend[0];
+        $bsCount = 1;
+        for ($i=1; $i<count($bsTrend); $i++) {
+            if ($bsTrend[$i] == $lastBS) $bsCount++; else break;
+        }
+        $predBS = ($bsCount >= 3) ? ($lastBS == '大' ? '小' : '大') : $lastBS;
+
+        // 单双同理
+        $lastOE = $oeTrend[0];
+        $oeCount = 1;
+        for ($i=1; $i<count($oeTrend); $i++) {
+            if ($oeTrend[$i] == $lastOE) $oeCount++; else break;
+        }
+        $predOE = ($oeCount >= 3) ? ($lastOE == '单' ? '双' : '单') : $lastOE;
+
+        return ['bs' => $predBS, 'oe' => $predOE];
+    }
+
     private static function getKiller($scores, $history) {
         $lastZ = ZodiacManager::getInfo($history[0]['spec'])['zodiac'];
         if (isset($scores[$lastZ])) $scores[$lastZ] -= 50; 
@@ -244,6 +259,7 @@ class LotteryLogic {
         $sixXiao = array_slice($ranked, 0, 6);
         $threeXiao = array_slice($ranked, 0, 3);
 
+        // 波色
         $waveStats = ['red'=>0, 'blue'=>0, 'green'=>0];
         foreach ($threeXiao as $z) {
             foreach ($zodiacMap[$z] as $n) {
@@ -255,33 +271,30 @@ class LotteryLogic {
         arsort($waveStats);
         $waves = array_keys($waveStats);
 
+        // 大小单双
+        $bs_oe = self::predict_BS_OE($history);
+
         return [
             'six_xiao' => $sixXiao,
             'three_xiao' => $threeXiao,
             'color_wave' => ['primary'=>$waves[0], 'secondary'=>$waves[1]],
-            'strategy_used' => "V6泰坦矩阵 | 杀:{$killed}"
+            'bs' => $bs_oe['bs'],
+            'oe' => $bs_oe['oe'],
+            'strategy_used' => "V7泰坦矩阵+BSOE | 杀:{$killed}"
         ];
     }
 
-    // ==================================================================
-    // 【新增】复盘核对功能
-    // ==================================================================
     public static function verifyPrediction($issue, $specNum) {
         $pdo = Db::connect();
-        
-        // 1. 查找该期的预测存档
         $stmt = $pdo->prepare("SELECT * FROM prediction_history WHERE issue = ?");
         $stmt->execute([$issue]);
         $record = $stmt->fetch();
-        
-        if (!$record) return; // 没存过，无法复盘
+        if (!$record) return;
 
-        // 2. 获取开奖结果
         $info = ZodiacManager::getInfo($specNum);
         $realZodiac = $info['zodiac'];
         $realColor = $info['color'];
 
-        // 3. 对比
         $sixArr = explode(',', $record['six_xiao']);
         $threeArr = explode(',', $record['three_xiao']);
         
@@ -289,13 +302,11 @@ class LotteryLogic {
         $isHitThree = in_array($realZodiac, $threeArr) ? 1 : 0;
         $isHitWave = ($realColor == $record['wave_primary'] || $realColor == $record['wave_secondary']) ? 1 : 0;
 
-        // 4. 更新结果到数据库
         $upd = $pdo->prepare("UPDATE prediction_history SET result_zodiac=?, is_hit_six=?, is_hit_three=?, is_hit_wave=? WHERE issue=?");
         $upd->execute([$realZodiac, $isHitSix, $isHitThree, $isHitWave, $issue]);
 
-        // 5. 如果没中，记录失败原因日志
         if ($isHitSix == 0) {
-            $reason = "开奖[{$realZodiac}]不在预测[{$record['six_xiao']}]内。模型需调整权重。";
+            $reason = "预测失误。实际:{$realZodiac}";
             $log = $pdo->prepare("INSERT INTO learning_logs (issue, error_reason) VALUES (?, ?)");
             $log->execute([$issue, $reason]);
         }
