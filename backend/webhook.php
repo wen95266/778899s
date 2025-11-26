@@ -16,25 +16,12 @@ function sendMsg($chatId, $text, $keyboard = null) {
     $ch = curl_init(); curl_setopt($ch, CURLOPT_URL, $url); curl_setopt($ch, CURLOPT_POST, 1); curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data)); curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); $res = curl_exec($ch); curl_close($ch); return json_decode($res, true);
 }
 
-function editMsg($chatId, $msgId, $text, $keyboard = null) {
-    $token = trim($_ENV['TG_BOT_TOKEN']);
-    $url = "https://api.telegram.org/bot$token/editMessageText";
-    $data = ['chat_id' => $chatId, 'message_id' => $msgId, 'text' => $text, 'parse_mode' => 'Markdown'];
-    if ($keyboard) $data['reply_markup'] = json_encode($keyboard);
-    $ch = curl_init(); curl_setopt($ch, CURLOPT_URL, $url); curl_setopt($ch, CURLOPT_POST, 1); curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data)); curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_exec($ch); curl_close($ch);
-}
-
-function answerCallback($callbackId, $text = null) {
-    $token = trim($_ENV['TG_BOT_TOKEN']);
-    $url = "https://api.telegram.org/bot$token/answerCallbackQuery";
-    $data = ['callback_query_id' => $callbackId];
-    if ($text) $data['text'] = $text;
-    $ch = curl_init(); curl_setopt($ch, CURLOPT_URL, $url); curl_setopt($ch, CURLOPT_POST, 1); curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data)); curl_exec($ch); curl_close($ch);
-}
-
 function cleanText($text) {
-    $text = urldecode($text); $text = str_replace(["\r", "\n", "\r\n"], ' ', $text);
-    $text = preg_replace('/\p{Z}+/u', ' ', $text); $text = preg_replace('/\p{C}+/u', ' ', $text); $text = preg_replace('/\s+/', ' ', $text);
+    $text = urldecode($text);
+    $text = str_replace(["\r", "\n", "\r\n"], ' ', $text);
+    $text = preg_replace('/\p{Z}+/u', ' ', $text);
+    $text = preg_replace('/\p{C}+/u', ' ', $text);
+    $text = preg_replace('/\s+/', ' ', $text);
     return trim($text);
 }
 
@@ -45,42 +32,40 @@ function startEvolution() {
 }
 
 function getProgressMsg() {
-    $gen = intval(Settings::get('evolution_gen')); $json = Settings::get('staging_prediction');
-    $isEvolving = Settings::get('is_evolving'); $lastRun = intval(Settings::get('last_cron_run'));
-    $timeDiff = time() - $lastRun;
-    $cronStatus = ($timeDiff < 120) ? "💓 引擎正常" : "💀 引擎停跳";
-    $statusIcon = ($isEvolving == '1') ? "⚡ 进化中" : "💤 已暂停";
-    $load = ['🟩⬜⬜⬜⬜', '🟩🟩⬜⬜⬜', '🟩🟩🟩⬜⬜', '🟩🟩🟩🟩⬜', '🟩🟩🟩🟩🟩']; $bar = $load[time() % 5];
+    $gen = intval(Settings::get('evolution_gen'));
+    $json = Settings::get('staging_prediction');
+    $cMap = ['red'=>'红','blue'=>'蓝','green'=>'绿'];
 
     if ($json) {
-        $pred = json_decode($json, true); $score = 0;
-        if (isset($pred['strategy_used']) && preg_match('/得分([\d\.]+)/', $pred['strategy_used'], $m)) $score = $m[1];
+        $pred = json_decode($json, true);
+        $score = 0; if (isset($pred['strategy_used']) && preg_match('/分:([\d\.]+)/', $pred['strategy_used'], $m)) $score = $m[1];
+        
         $pdo = Db::connect();
         $stmt = $pdo->query("SELECT issue FROM lottery_records ORDER BY issue DESC LIMIT 1");
         $nextIssue = ($stmt->fetch()['issue'] ?? 0) + 1;
-        $sxEmoji = ['鼠'=>'🐀','牛'=>'🐂','虎'=>'🐅','兔'=>'🐇','龙'=>'🐉','蛇'=>'🐍','马'=>'🐎','羊'=>'🐏','猴'=>'🐒','鸡'=>'🐓','狗'=>'🐕','猪'=>'🐖'];
-        $threeStr = ""; if(isset($pred['three_xiao'])) foreach ($pred['three_xiao'] as $sx) $threeStr .= ($sxEmoji[$sx]??'') . $sx . " ";
-        $timeStr = date("H:i:s");
-        return "🧬 *AI 进化监控台*\n------------------\n{$cronStatus}\n{$statusIcon} | 进化 `{$gen}` 代\n{$bar}\n------------------\n🎯 目标：*{$nextIssue}*\n🧠 适应度：`{$score}`\n🔥 暂定：{$threeStr}\n------------------\n🕒 更新于：{$timeStr}";
-    } else return "⏳ AI 初始化中...\n{$cronStatus}\n请等待几秒钟...";
+        
+        $msg = "🧬 *AI 深度进化监控*\n";
+        $msg .= "📊 *进度*: 第 `{$gen}` 代 (50期回测)\n";
+        $msg .= "🧠 *适应度*: {$score}\n";
+        $msg .= "----------------------\n";
+        $msg .= "🎯 *目标*: 第 {$nextIssue} 期\n";
+        $msg .= "🚫 *杀肖*: {$pred['killed']}\n";
+        $msg .= "🦁 *六肖*: " . implode(" ", $pred['six_xiao']) . "\n";
+        $msg .= "🔥 *三肖*: " . implode(" ", $pred['three_xiao']) . "\n";
+        $msg .= "🌊 *波色*: {$cMap[$pred['color_wave']['primary']]} / {$cMap[$pred['color_wave']['secondary']]}\n";
+        $msg .= "👊 *主攻*: {$cMap[$pred['color_wave']['primary']]}\n";
+        $msg .= "⚖️ *属性*: {$pred['bs']} / {$pred['oe']}\n";
+        $msg .= "----------------------\n";
+        $msg .= "🕒 " . date("H:i:s");
+        return $msg;
+    } else {
+        return "⏳ AI 初始化中... 请稍候";
+    }
 }
 
 $content = file_get_contents("php://input");
 $update = json_decode($content, true);
 if (!$update) exit('ok');
-
-if (isset($update['callback_query'])) {
-    $cq = $update['callback_query'];
-    $chatId = $cq['message']['chat']['id']; $msgId = $cq['message']['message_id']; $data = $cq['data'];
-    if ($data === 'refresh_progress') {
-        $text = getProgressMsg();
-        $keyboard = ['inline_keyboard' => [[['text' => '🔄 立即刷新', 'callback_data' => 'refresh_progress']]]];
-        editMsg($chatId, $msgId, $text, $keyboard);
-        Settings::set('progress_msg_id', $msgId); Settings::set('progress_chat_id', $chatId);
-        answerCallback($cq['id'], "已刷新");
-    }
-    exit('ok');
-}
 
 $msgType = isset($update['channel_post']) ? 'channel_post' : (isset($update['message']) ? 'message' : '');
 if (!$msgType) exit('ok');
@@ -100,12 +85,10 @@ if (!empty($issueMatch)) {
             $pdo = Db::connect();
             $sql = "INSERT INTO lottery_records (issue, n1, n2, n3, n4, n5, n6, spec) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE n1=?, n2=?, n3=?, n4=?, n5=?, n6=?, spec=?";
             $stmt = $pdo->prepare($sql); $params = array_merge([$issue], $nums, $nums); $stmt->execute($params);
-            
             LotteryLogic::verifyPrediction($issue, $nums[6]);
             startEvolution();
-            
-            if ($msgType === 'message') sendMsg($chatId, "✅ *录入成功* - 第 `{$issue}` 期\n🧬 进化引擎已启动...");
-            elseif ($msgType === 'channel_post') { $adminId = trim($_ENV['TG_ADMIN_ID']); if ($adminId) sendMsg($adminId, "📢 频道同步第 $issue 期，进化开始"); }
+            if ($msgType === 'message') sendMsg($chatId, "✅ *录入成功* - 第 `{$issue}` 期\n🧬 进化已启动...");
+            elseif ($msgType === 'channel_post') { $adminId = trim($_ENV['TG_ADMIN_ID']); if ($adminId) sendMsg($adminId, "📢 频道同步，开始计算"); }
         } catch (Exception $e) {}
         echo 'ok'; exit;
     }
@@ -116,11 +99,10 @@ if ($msgType === 'message') {
     if ((string)$senderId === (string)$adminId) {
         $mainKeyboard = ['keyboard' => [[['text' => '🔮 查看计算进度'], ['text' => '🚀 发布预测到前端']], [['text' => '📊 查看最新录入'], ['text' => '⚙️ 设置生肖数据']]], 'resize_keyboard' => true, 'persistent_keyboard' => true];
 
-        if ($rawText === '/start') { sendMsg($chatId, "👋 达尔文进化系统 v2.0", $mainKeyboard); }
+        if ($rawText === '/start') { sendMsg($chatId, "👋 系统就绪", $mainKeyboard); }
         elseif ($rawText === '🔮 查看计算进度') {
             $msg = getProgressMsg();
-            $inlineKeyboard = ['inline_keyboard' => [[['text' => '🔄 立即刷新', 'callback_data' => 'refresh_progress']]]];
-            $res = sendMsg($chatId, $msg, $inlineKeyboard);
+            $res = sendMsg($chatId, $msg); // 不带按钮，纯展示，靠cron更新
             if ($res && isset($res['result']['message_id'])) {
                 Settings::set('progress_msg_id', $res['result']['message_id']);
                 Settings::set('progress_chat_id', $chatId);

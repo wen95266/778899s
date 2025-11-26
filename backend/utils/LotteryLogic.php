@@ -4,11 +4,12 @@ require_once 'Db.php';
 
 class LotteryLogic {
     
+    // --- 基础工具 ---
     private static function getFullAttr($num) { return ZodiacManager::getInfo($num); }
     private static function initScoreBoard() { $z = ZodiacManager::getMapping(); return array_fill_keys(array_keys($z), 0); }
     private static function normalize(&$s) { $m=max($s); if($m>0) foreach($s as $k=>$v) $s[$k]=($v/$m)*100; }
 
-    // --- Models ---
+    // --- 模型 ---
     private static function m_Trend($h) {
         $s = self::initScoreBoard(); $l = min(count($h),30);
         for($i=0;$i<$l;$i++) { $z=ZodiacManager::getInfo($h[$i]['spec'])['zodiac']; $s[$z]+=($i<10?3:1); }
@@ -93,20 +94,26 @@ class LotteryLogic {
     }
 
     public static function evolveStep($history, $population) {
-        $TEST_RANGE = 15;
+        // 【核心修改】回测范围扩大到 50 期
+        $TEST_RANGE = 50;
+        
         foreach ($population as &$gene) {
             $score = 0;
             for ($t=0; $t<$TEST_RANGE; $t++) {
                 $mockH = array_slice($history, $t+1);
+                // 数据太少时停止回测
                 if(count($mockH)<50) break;
+                
                 $res = ZodiacManager::getInfo($history[$t]['spec'])['zodiac'];
                 $rank = self::runPrediction($mockH, $gene);
+                
                 if(in_array($res, array_slice($rank,0,6))) $score+=10;
                 if(in_array($res, array_slice($rank,0,3))) $score+=30;
             }
             $gene['fitness'] = $score;
         }
         unset($gene);
+        
         usort($population, function($a,$b){return $b['fitness']-$a['fitness'];});
         $bestGene = $population[0];
         
@@ -128,6 +135,7 @@ class LotteryLogic {
 
     public static function generateResult($history, $bestGene, $genCount) {
         $ranking = self::runPrediction($history, $bestGene);
+        $killed = end($ranking); // 倒数第一名作为杀肖
         $six = array_slice($ranking, 0, 6);
         $three = array_slice($ranking, 0, 3);
         
@@ -136,13 +144,15 @@ class LotteryLogic {
         foreach($three as $z) foreach($map[$z] as $n) { $i=ZodiacManager::getInfo($n); $w=($i['element']=='金'||$i['element']=='水')?1.5:1; $wc[$i['color']]+=$w; }
         arsort($wc); $w=array_keys($wc);
         $bsoe = self::predict_BS_OE($history);
-        $killed=end($ranking);
 
         return [
-            'six_xiao' => $six, 'three_xiao' => $three,
+            'killed' => $killed,
+            'six_xiao' => $six, 
+            'three_xiao' => $three,
             'color_wave' => ['primary'=>$w[0], 'secondary'=>$w[1]],
-            'bs' => $bsoe['bs'], 'oe' => $bsoe['oe'],
-            'strategy_used' => "进化{$genCount}代(F:{$bestGene['fitness']}) | 杀:{$killed}"
+            'bs' => $bsoe['bs'], 
+            'oe' => $bsoe['oe'],
+            'strategy_used' => "进化{$genCount}代 | 分:{$bestGene['fitness']}"
         ];
     }
     
