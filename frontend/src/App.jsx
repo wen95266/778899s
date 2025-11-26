@@ -11,15 +11,18 @@ function App() {
 
   const fetchData = async (currentLimit) => {
     try {
-      // 加个随机数防止缓存
       const t = new Date().getTime();
       const res = await fetch(`${import.meta.env.VITE_API_URL}?action=get_data&limit=${currentLimit}&_t=${t}`);
       const json = await res.json();
       if (json.status === 'success') setData(json.data);
       
-      const resHist = await fetch(`${import.meta.env.VITE_API_URL}?action=get_history&_t=${t}`);
+      // 【核心修改】首页只获取最近 5 条战绩，不用全拿
+      const resHist = await fetch(`${import.meta.env.VITE_API_URL}?action=get_history&limit=5&_t=${t}`);
       const jsonHist = await resHist.json();
-      if (jsonHist.status === 'success') setPredHistory(jsonHist.data);
+      if (jsonHist.status === 'success') {
+          // 后端如果没支持limit参数返回的是20条，前端手动截取前5条
+          setPredHistory(jsonHist.data.slice(0, 5));
+      }
     } catch (error) {
       console.error(error);
     } finally {
@@ -43,9 +46,8 @@ function App() {
   const totalInDb = data.total_count || historyList.length;
   const hasMore = historyList.length < (totalInDb - 1); 
 
-  // --- 预测数据解析 (核心修复) ---
-  const pred = data.prediction || {}; // 如果没发布，这里是空对象
-  const isPublished = !!data.prediction; // 标记是否已发布
+  const pred = data.prediction || {};
+  const isPublished = !!data.prediction;
 
   const sixXiao = pred.six_xiao || Array(6).fill('?');
   const threeXiao = pred.three_xiao || Array(3).fill('?');
@@ -56,7 +58,6 @@ function App() {
   const bs = pred.bs || '-';
   const oe = pred.oe || '-';
 
-  // 解析杀肖
   let killedZodiac = '-';
   if (pred.strategy_used) {
       const match = pred.strategy_used.match(/杀[:：](.+)/);
@@ -100,10 +101,7 @@ function App() {
              </div>
           </div>
           
-          {/* 预测内容区域 (如果未发布显示遮罩) */}
           <div className={`transition-opacity duration-500 ${isPublished ? 'opacity-100' : 'opacity-50 blur-sm'}`}>
-              
-              {/* 三肖 */}
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2"><span className="text-xs font-bold text-yellow-400">🔥 核心三肖</span></div>
                 <div className="grid grid-cols-3 gap-3">
@@ -113,15 +111,12 @@ function App() {
                 </div>
               </div>
 
-              {/* 综合推荐区 */}
               <div className="grid grid-cols-2 gap-3 mb-4">
-                 {/* 左：波色 */}
                  <div className={`rounded-lg p-2 border flex flex-col items-center justify-center relative overflow-hidden ${waveStyles[w1]}`}>
                     <div className="absolute top-0 left-0 bg-white/20 text-[8px] px-1 rounded-br">主攻</div>
                     <div className="font-bold text-lg leading-none">{waveNames[w1]}波</div>
                     <div className="text-[10px] opacity-80 mt-1">防: {waveNames[w2]}</div>
                  </div>
-                 {/* 右：大小单双 */}
                  <div className="bg-slate-800/60 rounded-lg p-2 border border-slate-700 flex flex-col justify-between">
                     <div className="flex justify-between items-center border-b border-slate-600/50 pb-1">
                        <span className="text-[10px] text-gray-400">推荐大小</span>
@@ -134,14 +129,12 @@ function App() {
                  </div>
               </div>
 
-              {/* 六肖防守 */}
               <div className="flex items-center gap-2 opacity-60">
                  <span className="text-xs">防守:</span>
                  <div className="flex gap-1">{sixXiao.slice(3).map((z, i) => <span key={i} className="text-xs font-mono bg-white/10 px-1.5 rounded">{z}</span>)}</div>
               </div>
           </div>
 
-          {/* 未发布时的提示层 */}
           {!isPublished && (
               <div className="absolute inset-0 flex items-center justify-center z-20 bg-slate-900/60 backdrop-blur-sm">
                   <div className="bg-slate-800 px-4 py-2 rounded-full border border-slate-600 shadow-xl flex items-center gap-2">
@@ -150,16 +143,20 @@ function App() {
                   </div>
               </div>
           )}
-
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto space-y-4 pt-4 px-3">
+        
+        {/* === 战绩红黑榜 (只显示5条) === */}
         {predHistory.length > 0 && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
             <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
               <span className="text-xs text-gray-500 font-bold uppercase">AI Accuracy</span>
-              <span className="text-[10px] text-gray-400">复盘记录</span>
+              {/* 这里的 Link 引导用户去查看完整记录 */}
+              <Link to="/history" className="text-[10px] text-indigo-600 font-bold flex items-center gap-1">
+                查看全部 &gt;
+              </Link>
             </div>
             <div className="divide-y divide-gray-50">
               {predHistory.map((item) => (
