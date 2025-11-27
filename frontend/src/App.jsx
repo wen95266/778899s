@@ -2,6 +2,63 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Ball from './components/Ball';
 
+// --- 可视化组件 ---
+
+// 1. AI 信心仪表盘 (SVG 实现)
+const Gauge = ({ val }) => {
+  const r = 40;
+  const c = 50;
+  const circumference = Math.PI * r; // 半圆周长
+  const offset = ((100 - val) / 100) * circumference;
+  const color = val > 70 ? '#10b981' : val > 40 ? '#f59e0b' : '#ef4444'; // 绿/黄/红
+
+  return (
+    <div className="relative w-24 h-16 flex flex-col items-center overflow-hidden">
+      {/* 底色轨道 */}
+      <svg className="w-full h-24" viewBox="0 0 100 50">
+        <path d="M10,50 A40,40 0 0,1 90,50" fill="none" stroke="#e5e7eb" strokeWidth="10" />
+        {/* 进度条 */}
+        <path 
+          d="M10,50 A40,40 0 0,1 90,50" 
+          fill="none" 
+          stroke={color} 
+          strokeWidth="10" 
+          strokeDasharray={circumference} 
+          strokeDashoffset={offset} 
+          strokeLinecap="round"
+        />
+      </svg>
+      <div className="absolute bottom-0 text-lg font-bold" style={{ color }}>{val}%</div>
+      <div className="text-[10px] text-gray-400 absolute top-0 right-0">信心</div>
+    </div>
+  );
+};
+
+// 2. 迷你走势图 (SVG 实现 - 显示最近10期特码尾数)
+const MiniChart = ({ history }) => {
+  if (!history || history.length < 2) return null;
+  
+  // 取最近10期
+  const data = history.slice(0, 10).reverse().map(h => h.spec.num % 10);
+  
+  // 生成折线路径 points="x,y x,y..."
+  // 画布宽90 高30。x步长10，y根据数值0-9映射到30-0
+  const points = data.map((val, i) => `${i * 10},${30 - val * 3}`).join(' ');
+
+  return (
+    <div className="w-24 h-16 border-l border-b border-gray-200 p-1 flex flex-col justify-end relative">
+      <svg className="w-full h-full overflow-visible" viewBox="0 0 90 30">
+        <polyline fill="none" stroke="#3b82f6" strokeWidth="2" points={points} />
+        {/* 终点圆点 */}
+        <circle cx={(data.length-1)*10} cy={30 - data[data.length-1]*3} r="2" fill="#3b82f6" />
+      </svg>
+      <div className="text-[8px] text-gray-400 text-center mt-1">尾数走势</div>
+    </div>
+  );
+};
+
+// --- 主应用组件 ---
+
 function App() {
   const [data, setData] = useState(null);
   const [predHistory, setPredHistory] = useState([]);
@@ -16,13 +73,9 @@ function App() {
       const json = await res.json();
       if (json.status === 'success') setData(json.data);
       
-      // 【核心修改】首页只获取最近 5 条战绩，不用全拿
       const resHist = await fetch(`${import.meta.env.VITE_API_URL}?action=get_history&limit=5&_t=${t}`);
       const jsonHist = await resHist.json();
-      if (jsonHist.status === 'success') {
-          // 后端如果没支持limit参数返回的是20条，前端手动截取前5条
-          setPredHistory(jsonHist.data.slice(0, 5));
-      }
+      if (jsonHist.status === 'success') setPredHistory(jsonHist.data);
     } catch (error) {
       console.error(error);
     } finally {
@@ -51,12 +104,12 @@ function App() {
 
   const sixXiao = pred.six_xiao || Array(6).fill('?');
   const threeXiao = pred.three_xiao || Array(3).fill('?');
-  
+  const bs = pred.bs || '-'; 
+  const oe = pred.oe || '-';
+  const confidence = pred.confidence || 0; // 信心指数
+
   let w1 = 'red', w2 = 'blue';
   if (pred.color_wave) { w1 = pred.color_wave.primary; w2 = pred.color_wave.secondary; }
-
-  const bs = pred.bs || '-';
-  const oe = pred.oe || '-';
 
   let killedZodiac = '-';
   if (pred.strategy_used) {
@@ -102,6 +155,7 @@ function App() {
           </div>
           
           <div className={`transition-opacity duration-500 ${isPublished ? 'opacity-100' : 'opacity-50 blur-sm'}`}>
+              
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2"><span className="text-xs font-bold text-yellow-400">🔥 核心三肖</span></div>
                 <div className="grid grid-cols-3 gap-3">
@@ -143,17 +197,26 @@ function App() {
                   </div>
               </div>
           )}
+
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto space-y-4 pt-4 px-3">
         
-        {/* === 战绩红黑榜 (只显示5条) === */}
+        {/* === 可视化仪表盘 (新) === */}
+        {isPublished && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 flex justify-around items-center">
+                <Gauge val={confidence} />
+                <div className="w-px h-12 bg-gray-100"></div>
+                <MiniChart history={data.history} />
+            </div>
+        )}
+
+        {/* === 战绩概览 === */}
         {predHistory.length > 0 && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
             <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
               <span className="text-xs text-gray-500 font-bold uppercase">AI Accuracy</span>
-              {/* 这里的 Link 引导用户去查看完整记录 */}
               <Link to="/history" className="text-[10px] text-indigo-600 font-bold flex items-center gap-1">
                 查看全部 &gt;
               </Link>
