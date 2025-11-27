@@ -7,56 +7,55 @@ function startBot() {
     const ADMIN_ID = parseInt(process.env.ADMIN_ID);
     const CHANNEL_ID = process.env.CHANNEL_ID; 
 
-    // --- 中间件：权限控制 ---
     bot.use(async (ctx, next) => {
-        // 1. 频道消息：只处理指定 ID 的频道
+        // 1. 频道消息
         if (ctx.channelPost) {
-            // 如果 .env 没配 CHANNEL_ID，建议先打印出来看看 ctx.chat.id
-            if (CHANNEL_ID && String(ctx.chat.id) === String(CHANNEL_ID)) {
+            // 调试模式：打印所有频道消息的ID，帮您确认 .env 配置对不对
+            // console.log("收到频道消息, ID:", ctx.chat.id);
+            if (!CHANNEL_ID || String(ctx.chat.id) === String(CHANNEL_ID)) {
                 return next();
             }
-            // 如果没配置强制频道ID，暂时放行所有频道（调试用），建议生产环境加上校验
-            return next(); 
+            return;
         }
-
-        // 2. 私聊/群组：只处理管理员
+        // 2. 私聊消息
         if (ctx.from && ctx.from.id === ADMIN_ID) {
             return next();
         }
     });
 
-    bot.start((ctx) => ctx.reply('🤖 管理员好，开奖机器人已就绪。\n请将开奖频道的文字消息转发给我，即可自动入库。'));
+    bot.start((ctx) => ctx.reply('🤖 管理员好，请发送开奖模板测试。'));
 
-    // --- 核心逻辑：监听文本消息 ---
     bot.on(['text', 'channel_post'], async (ctx) => {
         const text = ctx.message?.text || ctx.channelPost?.text;
         if (!text) return;
 
-        // 1. 解析消息
+        // 尝试解析
         const result = parseLotteryResult(text);
         
         if (result) {
+            // --- 解析成功，开始处理 ---
             const { issue, flatNumbers, specialCode, shengxiao } = result;
 
-            // 2. 获取历史数据用于计算预测
-            let prediction = [];
+            // 提示用户正在计算（如果是私聊）
+            if (ctx.chat.type === 'private') {
+                await ctx.reply(`⏳ 收到第 ${issue} 期数据，正在计算预测模型...`);
+            }
+
+            // 获取历史数据
+            let prediction = {};
             try {
-                // 获取最近 50 期数据
                 const [historyRows] = await db.query('SELECT numbers, special_code FROM lottery_results ORDER BY issue DESC LIMIT 50');
-                
-                // 将当前这期也加入计算队列
                 const currentData = { numbers: flatNumbers, special_code: specialCode };
                 const allData = [currentData, ...historyRows];
                 
-                // 生成下期预测
                 prediction = generatePrediction(allData);
-
             } catch (e) {
-                console.error("预测计算失败，降级为随机:", e);
+                console.error("预测计算失败:", e);
+                // 如果数据库挂了，至少保证入库能成
                 prediction = generatePrediction([]); 
             }
 
-            // 3. 准备入库
+            // 入库
             const sql = `
                 INSERT INTO lottery_results (issue, numbers, special_code, shengxiao, next_prediction, open_date)
                 VALUES (?, ?, ?, ?, ?, NOW())
@@ -67,40 +66,35 @@ function startBot() {
             const jsonPrediction = JSON.stringify(prediction);
 
             try {
-                // 4. 执行 SQL
                 await db.execute(sql, [
                     issue, jsonNumbers, specialCode, shengxiao, jsonPrediction,
                     jsonNumbers, specialCode, shengxiao, jsonPrediction
                 ]);
                 
-                const replyText = `✅ **第 ${issue} 期录入成功**\n\n🐉 特码: ${specialCode} (${shengxiao})\n🔮 下期预测: ${prediction.join(', ')}`;
+                // 构造成功的回复
+                const replyText = `✅ **录入成功！**\n\n第 ${issue} 期\n特码: ${specialCode} (${shengxiao})\n\n🔮 **下期预测已生成**\n六肖: ${prediction.liu_xiao.join(' ')}\n主攻: ${prediction.zhu_bo == 'red'?'红波':prediction.zhu_bo=='blue'?'蓝波':'绿波'}`;
 
-                // 5. 反馈结果
                 if (ctx.chat.type === 'private') {
                     ctx.replyWithMarkdown(replyText);
                 } else {
-                    console.log(`[Bot] 频道自动录入: 第${issue}期`);
+                    console.log(`频道录入成功: ${issue}`);
                 }
 
             } catch (err) {
-                console.error("数据库错误:", err);
-                if (ctx.chat.type === 'private') ctx.reply('❌ 数据库写入错误，请检查日志。');
+                console.error("SQL Error:", err);
+                if (ctx.chat.type === 'private') ctx.reply('❌ 数据库写入失败');
             }
+
         } else {
-            // 解析失败时，只在私聊提示，避免频道刷屏
-            if (ctx.chat.type === 'private') {
-                // 简单的防误触：只有看起来像开奖的才提示错误
-                if (text.includes('开奖') || text.includes('第')) {
-                    ctx.reply('❓ 格式无法识别，请检查复制的内容是否完整。');
-                }
+            // --- 解析失败的反馈 ---
+            // 只有当文本看起来像是要录入数据时（包含"第"和数字），才报错，防止聊天干扰
+            if (ctx.chat.type === 'private' && /第.*期/.test(text)) {
+                ctx.reply('❌ 格式解析失败。\n请确保包含：\n1. "第xxxx期"\n2. 包含7个两位数字的一行 (如 01 02 ...)\n\n后台日志已打印详情。');
             }
         }
     });
 
-    // --- 启动与错误处理 ---
-    bot.launch().then(() => {
-        console.log('🚀 Telegram Bot 服务已启动');
-    }).catch(err => console.error('❌ Bot 启动失败:', err));
+    bot.launch().then(() => console.log('🚀 Bot 启动成功')).catch(e => console.error(e));
 
     process.once('SIGINT', () => bot.stop('SIGINT'));
     process.once('SIGTERM', () => bot.stop('SIGTERM'));
