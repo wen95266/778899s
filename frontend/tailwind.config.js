@@ -9,6 +9,7 @@ export default {
         animation: {
           'pop-up': 'popUp 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards',
           'shimmer': 'shimmer 2.5s linear infinite',
+          'pulse-slow': 'pulse 3s infinite',
         },
         keyframes: {
           popUp: {

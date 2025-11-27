@@ -3,9 +3,9 @@
 @tailwind utilities;
 
 body {
-  /* 稍微深一点的灰，衬托白色卡片 */
-  background-color: #eef2f6;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: #eef2f6; /* 浅灰背景 */
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
