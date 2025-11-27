@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Ball from './components/Ball';
 
-// --- 迷你图表组件 ---
+// --- 组件定义 ---
 const Gauge = ({ val }) => {
   const color = val > 75 ? '#34d399' : val > 40 ? '#fbbf24' : '#f87171';
   return (
@@ -62,7 +62,6 @@ function App() {
   const historyList = data.history.slice(1);
   const hasMore = historyList.length < (data.total_count - 1);
 
-  // 解析预测
   const pred = data.prediction || {};
   const isPub = !!data.prediction;
   const threeXiao = pred.three_xiao || ['?', '?', '?'];
@@ -80,12 +79,22 @@ function App() {
   else if (pred.killed) killed = pred.killed;
 
   const waveMap = { red: '红波', blue: '蓝波', green: '绿波' };
-  const waveColors = { red: 'from-red-500 to-red-700', blue: 'from-blue-500 to-blue-700', green: 'from-emerald-500 to-emerald-700' };
+  // 颜色映射：from-xxx to-xxx
+  const waveColors = { 
+      red: 'from-red-500 to-red-700', 
+      blue: 'from-blue-500 to-blue-700', 
+      green: 'from-emerald-500 to-emerald-700' 
+  };
+  // 防守波色颜色：稍微淡一点
+  const waveColorsLight = {
+      red: 'from-red-400/80 to-red-600/80',
+      blue: 'from-blue-400/80 to-blue-600/80',
+      green: 'from-emerald-400/80 to-emerald-600/80'
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans pb-12">
       
-      {/* === 顶部导航 === */}
       <header className="bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-slate-200">
         <div className="max-w-xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -100,16 +109,13 @@ function App() {
 
       <div className="max-w-xl mx-auto px-3 pt-4 space-y-5">
 
-        {/* === AI 预测核心卡片 (黑金风格) === */}
         <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-slate-300">
-          {/* 背景 */}
           <div className="absolute inset-0 bg-slate-900">
             <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600 rounded-full mix-blend-multiply filter blur-[80px] opacity-20 animate-pulse"></div>
             <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-600 rounded-full mix-blend-multiply filter blur-[80px] opacity-20"></div>
           </div>
 
           <div className="relative p-5 text-white">
-            {/* 标题行 */}
             <div className="flex justify-between items-start mb-6">
               <div>
                 <div className="flex items-center gap-2 mb-1">
@@ -123,18 +129,14 @@ function App() {
               <Gauge val={conf} />
             </div>
 
-            {/* 内容区 (未发布时模糊) */}
             <div className={`transition-all duration-500 ${isPub ? 'opacity-100 filter-none' : 'opacity-40 blur-sm pointer-events-none'}`}>
               
-              {/* 重点推荐行 */}
               <div className="grid grid-cols-3 gap-3 mb-4">
                 <div className="col-span-2 bg-white/5 rounded-xl p-3 border border-white/10 backdrop-blur-sm">
                   <div className="text-[10px] text-gray-400 mb-2 flex items-center gap-1">🔥 核心三肖 <span className="w-full h-px bg-white/10"></span></div>
                   <div className="flex justify-between items-center">
                     {threeXiao.map((z,i) => (
-                      <div key={i} className="w-10 h-10 flex items-center justify-center bg-gradient-to-b from-amber-300 to-yellow-600 rounded-full shadow-lg shadow-yellow-900/50 font-bold text-lg text-white border border-yellow-200/50">
-                        {z}
-                      </div>
+                      <div key={i} className="w-10 h-10 flex items-center justify-center bg-gradient-to-b from-amber-300 to-yellow-600 rounded-full shadow-lg shadow-yellow-900/50 font-bold text-lg text-white border border-yellow-200/50">{z}</div>
                     ))}
                   </div>
                 </div>
@@ -145,12 +147,13 @@ function App() {
                 </div>
               </div>
 
-              {/* 次要数据行 */}
               <div className="grid grid-cols-4 gap-2 text-center">
-                <div className="bg-white/5 rounded-lg p-2 border border-white/5">
-                  <div className="text-[9px] text-gray-400">防守</div>
-                  <div className="text-sm font-bold text-gray-200">{waveMap[w2]}</div>
+                {/* 【核心修改】防守波色现在也有背景色了 */}
+                <div className={`rounded-lg p-2 border border-white/10 bg-gradient-to-br ${waveColorsLight[w2]}`}>
+                  <div className="text-[9px] text-white/70">防守</div>
+                  <div className="text-sm font-bold text-white">{waveMap[w2]}</div>
                 </div>
+                
                 <div className="bg-white/5 rounded-lg p-2 border border-white/5">
                   <div className="text-[9px] text-gray-400">大小</div>
                   <div className="text-sm font-bold text-yellow-400">{bs}</div>
@@ -166,7 +169,6 @@ function App() {
                 </div>
               </div>
 
-              {/* 底部：防守六肖 & 走势 */}
               <div className="mt-4 pt-3 border-t border-white/10 flex justify-between items-end">
                 <div>
                   <div className="text-[9px] text-gray-500 mb-1">防守六肖</div>
@@ -181,7 +183,6 @@ function App() {
 
             </div>
 
-            {/* 未发布时的遮罩提示 */}
             {!isPub && (
               <div className="absolute inset-0 z-20 flex flex-col items-center justify-center">
                 <div className="bg-slate-800/90 backdrop-blur-md px-6 py-3 rounded-full border border-indigo-500/30 shadow-2xl flex items-center gap-3">
@@ -196,7 +197,6 @@ function App() {
           </div>
         </div>
 
-        {/* === 最新开奖 (拟物风格) === */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
           <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Latest Result</span>
@@ -206,20 +206,15 @@ function App() {
             <div className="flex justify-center flex-wrap gap-3 mb-5 w-full">
               {latestDraw.normals.map((b,i) => <Ball key={i} num={b.num} color={b.color} zodiac={b.zodiac} size="lg"/>)}
             </div>
-            
             <div className="relative w-full flex items-center justify-center gap-4">
-               <div className="h-px bg-slate-200 flex-1"></div>
-               <span className="text-slate-300 text-xl font-thin">+</span>
-               <div className="h-px bg-slate-200 flex-1"></div>
+               <div className="h-px bg-slate-200 flex-1"></div><span className="text-slate-300 text-xl font-thin">+</span><div className="h-px bg-slate-200 flex-1"></div>
             </div>
-
             <div className="mt-4">
                <Ball num={latestDraw.spec.num} color={latestDraw.spec.color} zodiac={latestDraw.spec.zodiac} size="xl" isSpec={true}/>
             </div>
           </div>
         </div>
 
-        {/* === 历史列表 (极简风) === */}
         <div className="space-y-3">
           <h3 className="text-sm font-bold text-slate-700 px-2 flex items-center gap-2">
             <span className="w-1 h-4 bg-indigo-500 rounded-full"></span> 往期走势
@@ -229,9 +224,7 @@ function App() {
               <div className="flex justify-between items-center">
                  <span className="font-mono font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-sm">#{item.issue}</span>
                  <div className="flex gap-2 text-[10px] text-slate-400">
-                    <span>{item.spec.bs}</span>
-                    <span>{item.spec.oe}</span>
-                    <span>{item.spec.element}</span>
+                    <span>{item.spec.bs}</span><span>{item.spec.oe}</span><span>{item.spec.element}</span>
                  </div>
               </div>
               <div className="flex items-center justify-between">
@@ -245,16 +238,8 @@ function App() {
               </div>
             </div>
           ))}
-          
-          <button 
-            onClick={handleLoadMore} 
-            disabled={expanding || !hasMore} 
-            className="w-full py-3 text-sm font-medium text-slate-500 bg-white rounded-xl shadow-sm border border-slate-200 hover:bg-slate-50 transition-colors disabled:opacity-50"
-          >
-            {expanding ? '加载中...' : hasMore ? '⬇️ 查看更多历史' : '已显示全部数据'}
-          </button>
+          <button onClick={handleLoadMore} disabled={expanding || !hasMore} className="w-full py-3 text-sm font-medium text-slate-500 bg-white rounded-xl shadow-sm border border-slate-200 hover:bg-slate-50 transition-colors disabled:opacity-50">{expanding ? '加载中...' : hasMore ? '⬇️ 查看更多历史' : '已显示全部数据'}</button>
         </div>
-
       </div>
     </div>
   );

@@ -8,80 +8,87 @@ function HistoryPage() {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        // 获取最近 100 期战绩 (数量可以改大)
         const res = await fetch(`${import.meta.env.VITE_API_URL}?action=get_history&t=${Date.now()}`);
         const json = await res.json();
         if (json.status === 'success') setRecords(json.data);
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setLoading(false);
-      }
+      } catch (error) { console.error(error); } finally { setLoading(false); }
     };
     fetchHistory();
   }, []);
 
+  const waveMap = { red: '红', blue: '蓝', green: '绿' };
+
   return (
-    <div className="min-h-screen bg-gray-100 font-sans pb-10">
-      {/* 顶部导航 */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
+    <div className="min-h-screen bg-slate-50 font-sans pb-10">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
         <div className="max-w-2xl mx-auto px-4 h-12 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 text-gray-600 hover:text-indigo-600 transition-colors">
-            <span>← 返回</span>
+          <Link to="/" className="flex items-center gap-1 text-sm font-bold text-slate-600 hover:text-indigo-600 transition-colors">
+            &larr; 返回首页
           </Link>
-          <h1 className="text-base font-bold text-gray-800">预测战绩全览</h1>
-          <div className="w-10"></div> {/* 占位用，保持标题居中 */}
+          <h1 className="text-base font-bold text-slate-800">AI 战绩复盘</h1>
+          <div className="w-12"></div>
         </div>
       </header>
 
-      <div className="max-w-2xl mx-auto p-4">
+      <div className="max-w-2xl mx-auto p-4 space-y-4">
         {loading ? (
-          <div className="text-center text-gray-400 py-10">加载战绩中...</div>
+          <div className="text-center text-slate-400 py-10">正在拉取战报...</div>
+        ) : records.length === 0 ? (
+          <div className="text-center text-slate-400 py-10">暂无复盘数据</div>
         ) : (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-              <span className="text-xs text-gray-500 font-bold uppercase">Accuracy Records</span>
-              <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">{records.length} 期</span>
-            </div>
+          records.map((item) => {
+            const isHit3 = item.is_hit_three == 1;
+            const isHit6 = item.is_hit_six == 1;
+            const isHitWave = item.is_hit_wave == 1;
             
-            <div className="divide-y divide-gray-100">
-              {records.map((item) => (
-                <div key={item.issue} className="p-4 flex flex-col gap-2">
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                       <span className="font-mono text-lg font-bold text-gray-800">{item.issue}期</span>
-                       <span className="text-xs text-gray-400 border border-gray-200 px-1 rounded">开: {item.result_zodiac}</span>
+            return (
+              <div key={item.issue} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                {/* 头部：期号与结果 */}
+                <div className="bg-slate-50 px-4 py-2 flex justify-between items-center border-b border-slate-100">
+                  <span className="font-mono font-bold text-slate-700">#{item.issue}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400">实际开:</span>
+                    <span className="w-6 h-6 flex items-center justify-center bg-slate-800 text-white rounded-full text-xs font-bold">
+                      {item.result_zodiac}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 内容区：预测对比 */}
+                <div className="p-4">
+                  <div className="grid grid-cols-2 gap-4 mb-3">
+                    {/* 三肖 */}
+                    <div>
+                      <div className="text-[10px] text-slate-400 mb-1">推荐三肖</div>
+                      <div className={`text-sm font-bold ${isHit3 ? 'text-yellow-600' : 'text-slate-600'}`}>
+                        {item.three_xiao ? item.three_xiao.replace(/,/g, ' ') : '-'}
+                        {isHit3 && <span className="ml-1 text-xs bg-yellow-100 text-yellow-700 px-1 rounded">中</span>}
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-400">{item.created_at?.substring(5,16)}</div>
+                    {/* 波色 */}
+                    <div>
+                      <div className="text-[10px] text-slate-400 mb-1">推荐波色</div>
+                      <div className={`text-sm font-bold ${isHitWave ? 'text-blue-600' : 'text-slate-600'}`}>
+                        {waveMap[item.wave_primary]}/{waveMap[item.wave_secondary]}
+                        {isHitWave && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1 rounded">中</span>}
+                      </div>
+                    </div>
                   </div>
-                  
-                  <div className="flex gap-2 mt-1">
-                     {/* 六肖状态 */}
-                     <span className={`flex-1 py-1.5 rounded text-center text-xs font-bold border 
-                       ${item.is_hit_six == 1 ? 'bg-red-50 border-red-100 text-red-600' : 'bg-gray-50 border-gray-100 text-gray-400'}`}>
-                       {item.is_hit_six == 1 ? '六肖中' : '六肖错'}
-                     </span>
-                     {/* 三肖状态 */}
-                     <span className={`flex-1 py-1.5 rounded text-center text-xs font-bold border 
-                       ${item.is_hit_three == 1 ? 'bg-yellow-50 border-yellow-100 text-yellow-700' : 'bg-gray-50 border-gray-100 text-gray-300'}`}>
-                       {item.is_hit_three == 1 ? '🔥三肖中' : '-'}
-                     </span>
-                     {/* 波色状态 */}
-                     <span className={`flex-1 py-1.5 rounded text-center text-xs font-bold border 
-                       ${item.is_hit_wave == 1 ? 'bg-blue-50 border-blue-100 text-blue-600' : 'bg-gray-50 border-gray-100 text-gray-300'}`}>
-                       {item.is_hit_wave == 1 ? '波色中' : '-'}
-                     </span>
+
+                  {/* 底部：六肖 */}
+                  <div className="pt-3 border-t border-slate-50 flex justify-between items-center">
+                    <div className="text-xs text-slate-500">
+                      <span className="mr-2 opacity-60">六肖:</span>
+                      {item.six_xiao ? item.six_xiao.replace(/,/g, ' ') : '-'}
+                    </div>
+                    <div className={`text-xs font-bold px-2 py-0.5 rounded ${isHit6 ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-400'}`}>
+                      {isHit6 ? '六肖中' : '全错'}
+                    </div>
                   </div>
                 </div>
-              ))}
-              
-              {records.length === 0 && (
-                <div className="p-8 text-center text-gray-400 text-sm">
-                  暂无复盘数据，等待开奖后生成。
-                </div>
-              )}
-            </div>
-          </div>
+              </div>
+            );
+          })
         )}
       </div>
     </div>
