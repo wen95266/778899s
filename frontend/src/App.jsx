@@ -17,13 +17,14 @@ const getBallColorClass = (n) => {
 const Ball = ({ num, size = 'normal', isSpecial = false }) => {
   const colorClass = getBallColorClass(num);
   const sizeClass = size === 'large' ? 'w-10 h-10 text-lg' : 'w-8 h-8 text-sm';
+  const smallSize = size === 'small' ? 'w-6 h-6 text-xs' : '';
   
   return (
     <div className={`
       relative flex items-center justify-center rounded-full 
       text-white font-bold shadow-ball
       ring-2 ring-opacity-50
-      ${colorClass} ${sizeClass}
+      ${colorClass} ${sizeClass !== '' ? sizeClass : smallSize}
     `}>
       <div className="absolute top-1 left-2 w-2 h-1 bg-white opacity-40 rounded-full"></div>
       {String(num).padStart(2, '0')}
@@ -36,11 +37,13 @@ const Ball = ({ num, size = 'normal', isSpecial = false }) => {
   );
 };
 
-// --- 预测详情卡片组件 ---
+// --- 预测详情卡片组件 (一肖一码版) ---
 const PredictionCard = ({ data, isHistory = false }) => {
   if (!data) return <div className="text-xs text-gray-400 p-2">暂无预测数据</div>;
 
-  const nums12 = data.rec_12_nums || [];
+  const zodiacOneCode = data.zodiac_one_code || [];
+  // 以前的旧数据可能没有 zodiac_one_code，兼容一下
+  const hasZodiacData = zodiacOneCode.length > 0;
 
   const waveStyles = {
     red: { label: '红波', class: 'text-red-600 bg-red-50 border-red-200' },
@@ -49,79 +52,82 @@ const PredictionCard = ({ data, isHistory = false }) => {
   };
 
   return (
-    <div className={`space-y-2 ${isHistory ? 'bg-gray-50 p-3 rounded-lg border border-gray-100 mt-2 text-xs' : ''}`}>
+    <div className={`space-y-3 ${isHistory ? 'bg-gray-50 p-3 rounded-lg border border-gray-100 mt-2 text-xs' : ''}`}>
       {isHistory && <div className="text-gray-400 text-[10px] mb-1 font-medium">下期预测存档:</div>}
 
-      {/* 1. 六肖 */}
-      <div className="flex items-center gap-2">
-        <span className="text-[10px] font-bold text-gray-500 bg-gray-200 px-1.5 rounded">六肖</span>
-        <div className="flex gap-1">
-          {data.liu_xiao && data.liu_xiao.map((zx, i) => (
-            <span key={i} className={`
-              w-6 h-6 flex items-center justify-center rounded-full text-[10px] font-bold
-              ${i < 3 ? 'bg-red-500 text-white' : 'bg-white border border-gray-300 text-gray-600'}
-            `}>
-              {zx}
-            </span>
-          ))}
+      {/* 1. 一肖一码阵 (核心展示区) */}
+      {hasZodiacData ? (
+        <div className="bg-white/80 p-2.5 rounded-lg border border-orange-200/60 shadow-sm">
+           <div className="flex items-center gap-1 mb-2 text-orange-800 font-bold text-[11px] justify-center">
+              <Grid size={12} className="text-orange-500"/> 全肖一码阵 (重点看金标)
+           </div>
+           
+           <div className="grid grid-cols-4 gap-2">
+              {zodiacOneCode.map((item, i) => {
+                 // 判断是否在主推三肖里，是的话高亮
+                 const isHot = data.zhu_san && data.zhu_san.includes(item.zodiac);
+                 return (
+                    <div key={i} className={`
+                        flex flex-col items-center justify-center p-1.5 rounded-lg border transition-all
+                        ${isHot ? 'bg-amber-50 border-amber-300 shadow-sm scale-105 z-10' : 'bg-gray-50 border-gray-100 opacity-80'}
+                    `}>
+                        <span className={`text-[10px] font-bold mb-1 ${isHot ? 'text-amber-700' : 'text-gray-500'}`}>{item.zodiac}</span>
+                        <Ball num={item.num} size="small" />
+                    </div>
+                 )
+              })}
+           </div>
         </div>
-      </div>
+      ) : (
+        <div className="text-center text-gray-400 text-[10px] py-2">旧数据格式，无法显示一码阵</div>
+      )}
 
-      {/* 2. 精选12码 (新增) */}
-      <div className="bg-white/70 p-2 rounded border border-gray-200">
-         <div className="flex items-center gap-1 mb-1.5">
-            <Grid size={12} className="text-amber-500"/>
-            <span className="text-[10px] font-bold text-gray-600">精选 12 码</span>
-         </div>
-         <div className="grid grid-cols-6 gap-y-2 place-items-center">
-            {nums12.length > 0 ? nums12.map((n, i) => (
-               <div key={i} className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border ${getBallColorClass(n).replace('ring-2', '').replace('text-white', 'text-white border-transparent')}`}>
-                  {String(n).padStart(2,'0')}
-               </div>
-            )) : <span className="text-gray-300 text-[10px] col-span-6">计算中...</span>}
-         </div>
-      </div>
-
-      {/* 3. 头尾数 */}
-      <div className="flex justify-between items-center bg-white/60 p-1.5 rounded border border-dashed border-gray-200">
-         <div className="flex gap-2 items-center">
-           <span className="text-[10px] text-gray-500">头数:</span>
-           <b className="text-indigo-600 text-xs">主{data.hot_head} / 防{data.fang_head}</b>
-         </div>
-         <div className="flex gap-1 items-center">
-            <span className="text-[10px] text-gray-500">尾数:</span>
-            {data.rec_tails && data.rec_tails.map((t, i) => (
-               <span key={i} className="w-4 h-4 bg-indigo-100 text-indigo-700 rounded text-[10px] flex items-center justify-center font-bold">{t}</span>
-            ))}
-         </div>
-      </div>
-
-      {/* 4. 波色与大小单双 */}
+      {/* 2. 辅助参数区域 (两列布局) */}
       <div className="grid grid-cols-2 gap-2">
-          <div className="bg-white/60 p-1.5 rounded flex items-center gap-2 border border-gray-100">
-             <Waves size={12} className="text-gray-400"/>
-             <div className="flex gap-1 text-[10px]">
-                {data.zhu_bo && (
-                  <span className={`px-1.5 rounded border ${waveStyles[data.zhu_bo]?.class}`}>
-                    主: {waveStyles[data.zhu_bo]?.label}
-                  </span>
-                )}
-                {data.fang_bo && (
-                  <span className={`px-1.5 rounded border opacity-70 ${waveStyles[data.fang_bo]?.class}`}>
-                    防: {waveStyles[data.fang_bo]?.label}
-                  </span>
-                )}
+         {/* 左：六肖/三肖 */}
+         <div className="space-y-2">
+             <div className="bg-white/60 p-1.5 rounded border border-gray-200">
+                <div className="text-[10px] text-gray-400 mb-1">🔥 主攻三肖</div>
+                <div className="flex gap-1">
+                   {data.zhu_san && data.zhu_san.map((z,i) => (
+                      <span key={i} className="bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold shadow-sm">{z}</span>
+                   ))}
+                </div>
              </div>
-          </div>
-          
-          <div className="bg-white/60 p-1.5 rounded flex items-center gap-2 border border-gray-100">
-             <Scale size={12} className="text-gray-400"/>
-             <div className="flex gap-1 text-[10px] font-bold text-gray-700">
-                <span className="bg-gray-100 px-1.5 rounded border border-gray-200">{data.da_xiao}</span>
-                <span className="bg-gray-100 px-1.5 rounded border border-gray-200">{data.dan_shuang}</span>
+             
+             <div className="bg-white/60 p-1.5 rounded border border-gray-200">
+                <div className="text-[10px] text-gray-400 mb-1">🎯 防守三肖</div>
+                <div className="flex gap-1">
+                   {data.liu_xiao && data.liu_xiao.slice(3,6).map((z,i) => (
+                      <span key={i} className="bg-gray-200 text-gray-600 text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-medium">{z}</span>
+                   ))}
+                </div>
              </div>
-          </div>
+         </div>
+
+         {/* 右：波色/头尾 */}
+         <div className="space-y-2">
+            <div className="bg-white/60 p-1.5 rounded border border-gray-200 flex flex-col justify-center h-[52px]">
+                <div className="flex items-center gap-1 text-[10px] mb-1">
+                   <Waves size={10} className="text-gray-400"/>
+                   <span className={waveStyles[data.zhu_bo]?.class + " px-1 rounded"}>主{waveStyles[data.zhu_bo]?.label}</span>
+                </div>
+                <div className="flex items-center gap-1 text-[10px]">
+                   <Scale size={10} className="text-gray-400"/>
+                   <span className="text-gray-600 bg-gray-100 px-1 rounded">{data.da_xiao}</span>
+                   <span className="text-gray-600 bg-gray-100 px-1 rounded">{data.dan_shuang}</span>
+                </div>
+            </div>
+
+            <div className="bg-white/60 p-1.5 rounded border border-gray-200 h-[52px] flex flex-col justify-center">
+                 <div className="text-[10px] text-gray-500 flex justify-between">
+                    <span>头: <b className="text-indigo-600">{data.hot_head}/{data.fang_head}</b></span>
+                    <span>尾: <b className="text-indigo-600">{data.rec_tails?.slice(0,2).join('')}</b></span>
+                 </div>
+            </div>
+         </div>
       </div>
+
     </div>
   );
 };
