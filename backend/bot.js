@@ -27,14 +27,14 @@ function getMainMenu() {
     const autoSendText = `${autoSendIcon} 自动推送: ${AUTO_SEND_ENABLED ? '开' : '关'}`;
     
     return Markup.keyboard([
-        ['🔮 下期预测', '⏳ 计算进度'],
-        ['🔭 深度演算', '📊 历史走势'],
-        ['📡 手动发频道', autoSendText], 
+        ['🔮 基础计算', '⏳ 计算进度'],
+        ['🔭 深度计算', '📊 开奖记录'],
+        ['📡 发送到频道(深度)', autoSendText], 
         ['🗑 删除记录']
     ]).resize();
 }
 
-// 格式化文案 (适配一肖一码)
+// 格式化文案
 function formatPredictionText(issue, pred, isFinalOrTitle = false) {
     const waveMap = { red: '🔴 红波', blue: '🔵 蓝波', green: '🟢 绿波' };
     
@@ -50,19 +50,14 @@ function formatPredictionText(issue, pred, isFinalOrTitle = false) {
     const tails = pred.rec_tails ? pred.rec_tails.join('、') : (pred.hot_tail || '?');
     const safeJoin = (arr) => arr ? arr.join(' ') : '?';
     
-    // --- 格式化一肖一码阵 ---
-    // 将 12 个生肖分 4 行展示，每行 3 个
+    // 格式化一肖一码阵
     let zodiacGrid = '';
     if (pred.zodiac_one_code && Array.isArray(pred.zodiac_one_code)) {
         let lines = [];
         let currentLine = [];
-        
         pred.zodiac_one_code.forEach((item, index) => {
-            // 格式：鼠[17]
             const numStr = String(item.num).padStart(2, '0');
             currentLine.push(`${item.zodiac}[${numStr}]`);
-            
-            // 每3个换一行
             if ((index + 1) % 3 === 0) {
                 lines.push(currentLine.join('  '));
                 currentLine = [];
@@ -125,21 +120,21 @@ function startBot() {
                 const nextIssue = parseInt(CALC_TASK.currentIssue) + 1;
                 const jsonPred = JSON.stringify(CALC_TASK.bestPrediction);
 
-                // Phase 1 完成
+                // Phase 1 (基础) 完成
                 if (CALC_TASK.phase === 1) {
                     await db.execute('UPDATE lottery_results SET next_prediction=? WHERE issue=?', [jsonPred, CALC_TASK.currentIssue]);
                     
                     if (AUTO_SEND_ENABLED && CHANNEL_ID && CALC_TASK.bestPrediction) {
                         const msg = formatPredictionText(nextIssue, CALC_TASK.bestPrediction, true);
                         await bot.telegram.sendMessage(CHANNEL_ID, msg, { parse_mode: 'Markdown' });
-                        bot.telegram.sendMessage(ADMIN_ID, `✅ 第 ${nextIssue} 期 (基础版) 计算完毕 (迭代${CALC_TASK.iterations}次)，已自动推送。`);
+                        bot.telegram.sendMessage(ADMIN_ID, `✅ 第 ${nextIssue} 期 (基础版) 计算完毕 (迭代${CALC_TASK.iterations}次)，已自动推送频道。`);
                     }
                 } 
-                // Phase 2 完成
+                // Phase 2 (深度) 完成
                 else if (CALC_TASK.phase === 2) {
                     await db.execute('UPDATE lottery_results SET deep_prediction=? WHERE issue=?', [jsonPred, CALC_TASK.currentIssue]);
                     
-                    bot.telegram.sendMessage(ADMIN_ID, `✅ 第 ${nextIssue} 期 **深度计算** 已完成！\n共迭代 ${CALC_TASK.iterations} 次`, {
+                    bot.telegram.sendMessage(ADMIN_ID, `✅ 第 ${nextIssue} 期 **深度计算** 已完成！\n共迭代 ${CALC_TASK.iterations} 次\n请点击下方按钮查看或手动发送。`, {
                         parse_mode: 'Markdown',
                         ...Markup.inlineKeyboard([
                             Markup.button.callback('👁️ 立即查看结果', 'show_deep_final')
@@ -157,7 +152,6 @@ function startBot() {
                 CALC_TASK.historyCache = rows;
             }
             
-            // 批量跑 100 次以提高效率
             for(let i=0; i<100; i++) {
                 const tempPred = generateSinglePrediction(CALC_TASK.historyCache);
                 const score = scorePrediction(tempPred, CALC_TASK.historyCache);
@@ -166,7 +160,6 @@ function startBot() {
                     CALC_TASK.bestScore = score;
                     CALC_TASK.bestPrediction = tempPred;
                     
-                    // 偶尔保存一次 (每500次批量循环保存一次，防止IO太高)
                     if (i === 99) { 
                         const jsonPred = JSON.stringify(tempPred);
                         if (CALC_TASK.phase === 1) await db.execute('UPDATE lottery_results SET next_prediction=? WHERE issue=?', [jsonPred, CALC_TASK.currentIssue]);
@@ -176,7 +169,7 @@ function startBot() {
                 CALC_TASK.iterations++;
             }
         } catch (e) { console.error("计算出错:", e); }
-    }, 10); // 10ms 循环一次
+    }, 10); 
 
     // --- 中间件 ---
     bot.use(async (ctx, next) => {
@@ -189,7 +182,7 @@ function startBot() {
 
     bot.start((ctx) => {
         userStates[ctx.from.id] = null;
-        ctx.reply('🤖 智能预测系统 V7.0 (一肖一码版) 已就绪', getMainMenu());
+        ctx.reply('🤖 智能预测系统 V7.1 (正式版) 已就绪', getMainMenu());
     });
 
     // --- 功能: 下期预测 ---
@@ -201,11 +194,14 @@ function startBot() {
             const row = rows[0];
             const nextIssue = parseInt(row.issue) + 1;
             let pred = row.next_prediction;
-            if (typeof pred === 'string') pred = JSON.parse(pred);
+            
+            if (typeof pred === 'string') {
+                try { pred = JSON.parse(pred); } catch(e) { pred = {}; }
+            }
 
             const isCalculating = CALC_TASK.isRunning && CALC_TASK.phase === 1 && CALC_TASK.currentIssue == row.issue;
             
-            const text = formatPredictionText(nextIssue, pred, !isCalculating);
+            const text = formatPredictionText(nextIssue, pred || {}, !isCalculating);
             const extra = {
                 parse_mode: 'Markdown',
                 ...Markup.inlineKeyboard([Markup.button.callback('🔄 刷新数据', 'refresh_pred')])
@@ -226,7 +222,6 @@ function startBot() {
             const row = rows[0];
             const nextIssue = parseInt(row.issue) + 1;
 
-            // 正在运行 Phase 2
             if (CALC_TASK.isRunning && CALC_TASK.phase === 2 && CALC_TASK.currentIssue == row.issue) {
                 const now = Date.now();
                 const timePct = Math.min(100, Math.floor(((now - CALC_TASK.startTime) / CALC_TASK.targetDuration) * 100));
@@ -241,8 +236,7 @@ function startBot() {
 ⏱️ 时间进度：${timePct}% (剩 ${timeLeft > 0 ? timeLeft : 0} 分)
 🧠 算力进度：${iterPct}%
 ━━━━━━━━━━━━━━
-_需满足 5 小时且 1000 万次增量迭代_
-`.trim();
+`;
                 const extra = { 
                     parse_mode: 'Markdown', 
                     ...Markup.inlineKeyboard([
@@ -255,20 +249,17 @@ _需满足 5 小时且 1000 万次增量迭代_
 
             if (row.deep_prediction && !isRefresh) {
                 let deepPred = typeof row.deep_prediction === 'string' ? JSON.parse(row.deep_prediction) : row.deep_prediction;
-                const text = formatPredictionText(nextIssue, deepPred, '🚀 深度加强版 (完成)');
+                const text = formatPredictionText(nextIssue, deepPred, '🚀 深度加强版 (已完成)');
                 return ctx.reply(text, {parse_mode:'Markdown'});
             }
 
-            // 如果 Phase 1 还没跑完
             if (CALC_TASK.isRunning && CALC_TASK.phase === 1) {
-                 const msg = '⚠️ **基础计算尚未完成**\n请等待基础任务达标后再启动深度计算。';
+                 const msg = '⚠️ **基础计算尚未完成**\n请等待基础任务推送后再启动深度计算。';
                  return isRefresh ? ctx.answerCbQuery(msg, {show_alert:true}) : ctx.replyWithMarkdown(msg);
             }
 
-            // 启动 Phase 2
             let startPred = null;
             if (row.next_prediction) startPred = typeof row.next_prediction === 'string' ? JSON.parse(row.next_prediction) : row.next_prediction;
-
             const baseIterations = CALC_TASK.iterations || 0;
 
             CALC_TASK = {
@@ -284,7 +275,7 @@ _需满足 5 小时且 1000 万次增量迭代_
                 historyCache: null 
             };
 
-            const startMsg = `🚀 **深度计算已启动**\n\n🎯 目标：${nextIssue} 期\n⏱️ 最少耗时：5 小时\n🧠 目标增量：+10,000,000 次迭代\n\n后台正在全力计算中...`;
+            const startMsg = `🚀 **深度计算已启动**\n\n🎯 目标：${nextIssue} 期\n⏱️ 耗时：5 小时\n🧠 增量迭代：1000万次\n\n完成后需手动推送。`;
             return isRefresh ? ctx.editMessageText(startMsg, {parse_mode:'Markdown'}) : ctx.replyWithMarkdown(startMsg);
 
         } catch (e) { console.error(e); ctx.reply('错误'); }
@@ -300,13 +291,12 @@ _需满足 5 小时且 1000 万次增量迭代_
         await ctx.reply(msg, { parse_mode: 'Markdown' });
     });
 
-    // --- 功能: 计算进度 ---
+    // --- 功能: 进度查询 ---
     const sendProgressMsg = async (ctx, isEdit = false) => {
         if (!CALC_TASK.isRunning) {
             const msg = '💤 当前无活跃任务。';
             return isEdit ? ctx.answerCbQuery(msg, {show_alert:true}) : ctx.reply(msg);
         }
-
         const now = Date.now();
         const timePct = Math.min(100, Math.floor(((now - CALC_TASK.startTime) / CALC_TASK.targetDuration) * 100));
         const iterPct = Math.min(100, Math.floor((CALC_TASK.iterations / CALC_TASK.targetIterations) * 100));
@@ -317,11 +307,11 @@ _需满足 5 小时且 1000 万次增量迭代_
 ━━━━━━━━━━━━━━
 🎯 目标：${parseInt(CALC_TASK.currentIssue) + 1} 期
 ⚡ 阶段：${phaseName}
-🔄 迭代：${CALC_TASK.iterations} / ${CALC_TASK.targetIterations}
+🔄 迭代：${CALC_TASK.iterations}
 ⭐ 得分：${CALC_TASK.bestScore.toFixed(1)}
 📊 进度：时间 ${timePct}% | 算力 ${iterPct}%
 ━━━━━━━━━━━━━━
-`.trim();
+`;
         const extra = { parse_mode: 'Markdown', ...Markup.inlineKeyboard([Markup.button.callback('🔄 刷新', 'refresh_prog')]) };
         if (isEdit) { await ctx.editMessageText(text, extra).catch(()=>{}); await ctx.answerCbQuery('更新成功'); }
         else await ctx.reply(text, extra);
@@ -329,7 +319,33 @@ _需满足 5 小时且 1000 万次增量迭代_
     bot.hears('⏳ 计算进度', (ctx) => sendProgressMsg(ctx, false));
     bot.action('refresh_prog', (ctx) => sendProgressMsg(ctx, true));
 
-    // --- 功能: 其它 ---
+    // --- 功能: 手动推送 (优先深度) ---
+    bot.hears(/手动发频道/, async (ctx) => {
+        if (!CHANNEL_ID) return ctx.reply('无频道ID');
+        try {
+            const [rows] = await db.query('SELECT * FROM lottery_results ORDER BY issue DESC LIMIT 1');
+            const row = rows[0];
+            const nextIssue = parseInt(row.issue) + 1;
+            
+            let pred = null;
+            let title = '';
+
+            if (row.deep_prediction) {
+                pred = typeof row.deep_prediction === 'string' ? JSON.parse(row.deep_prediction) : row.deep_prediction;
+                title = '🚀 深度加强版';
+            } else if (row.next_prediction) {
+                pred = typeof row.next_prediction === 'string' ? JSON.parse(row.next_prediction) : row.next_prediction;
+                title = '🏁 基础版 (深度暂未完成)';
+            }
+            
+            if (!pred) return ctx.reply('暂无任何预测数据');
+
+            const msgText = formatPredictionText(nextIssue, pred, title);
+            await ctx.telegram.sendMessage(CHANNEL_ID, msgText, { parse_mode: 'Markdown' });
+            ctx.reply(`✅ 已手动推送：${title}`);
+        } catch (e) { ctx.reply('发送失败: ' + e.message); }
+    });
+
     bot.hears(/自动推送/, (ctx) => {
         AUTO_SEND_ENABLED = !AUTO_SEND_ENABLED;
         ctx.reply(`自动推送: ${AUTO_SEND_ENABLED ? '✅ 开' : '❌ 关'}`, getMainMenu());
@@ -342,28 +358,12 @@ _需满足 5 小时且 1000 万次增量迭代_
         ctx.reply(msg, { parse_mode: 'Markdown' });
     });
 
-    bot.hears('📡 手动发频道', async (ctx) => {
-        if (!CHANNEL_ID) return ctx.reply('无频道ID');
-        try {
-            const [rows] = await db.query('SELECT * FROM lottery_results ORDER BY issue DESC LIMIT 1');
-            const row = rows[0];
-            const nextIssue = parseInt(row.issue) + 1;
-            
-            let pred = row.deep_prediction ? JSON.parse(row.deep_prediction) : JSON.parse(row.next_prediction);
-            let title = row.deep_prediction ? '📡 手动推送 (深度版)' : '📡 手动推送 (基础版)';
-            
-            if (!pred) return ctx.reply('无数据');
-            await ctx.telegram.sendMessage(CHANNEL_ID, formatPredictionText(nextIssue, pred, title), { parse_mode: 'Markdown' });
-            ctx.reply(`✅ 已推送 (${title})`);
-        } catch (e) { ctx.reply('失败: ' + e.message); }
-    });
-
     bot.hears('🗑 删除记录', (ctx) => {
         userStates[ctx.from.id] = 'WAITING_DELETE_ISSUE';
         ctx.reply('请输入要删除的期号', Markup.removeKeyboard());
     });
 
-    // --- 消息处理 (录入与删除) ---
+    // --- 消息处理 ---
     bot.on(['text', 'channel_post'], async (ctx) => {
         const text = ctx.message?.text || ctx.channelPost?.text;
         if (!text) return;
@@ -382,7 +382,7 @@ _需满足 5 小时且 1000 万次增量迭代_
             let initialPred = {};
             try {
                 const [h] = await db.query('SELECT numbers, special_code, shengxiao FROM lottery_results ORDER BY issue DESC LIMIT 50');
-                initialPred = generateSinglePrediction(h);
+                initialPred = generateSinglePrediction(h || []);
             } catch(e) { initialPred = generateSinglePrediction([]); }
 
             const jsonNums = JSON.stringify(flatNumbers);
@@ -396,7 +396,7 @@ _需满足 5 小时且 1000 万次增量迭代_
                     ON DUPLICATE KEY UPDATE numbers=?, special_code=?, shengxiao=?, next_prediction=?, deep_prediction=NULL, open_date=NOW()
                 `, [issue, jsonNums, specialCode, shengxiao, jsonPred, jsonNums, specialCode, shengxiao, jsonPred]);
 
-                // 2. 启动 Phase 1 (5小时, 1000万次)
+                // 2. 启动 Phase 1 (正式配置: 5小时, 1000万次)
                 CALC_TASK = {
                     isRunning: true,
                     phase: 1,
@@ -410,7 +410,7 @@ _需满足 5 小时且 1000 万次增量迭代_
                     historyCache: null
                 };
 
-                const msg = `✅ **第 ${issue} 期录入成功**\n\n🚀 **Phase 1 启动**\n目标时长：5 小时\n目标算力：10,000,000 次迭代\n\n(两者均达成后自动推送)`;
+                const msg = `✅ **第 ${issue} 期录入成功**\n\n🚀 **Phase 1 (正式版) 启动**\n目标时长：5 小时\n目标算力：10,000,000 次\n\n(完成后自动推送)`;
                 if (ctx.chat.type === 'private') ctx.replyWithMarkdown(msg);
                 else console.log(`频道录入: ${issue}`);
             } catch (err) { console.error(err); }
