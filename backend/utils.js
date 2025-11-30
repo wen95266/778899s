@@ -187,11 +187,6 @@ function parseLotteryResult(text) {
 // [第四部分] 历史回溯引擎 (Historical Engine)
 // ----------------------------------------------------------------------------
 
-/**
- * 历史规律挖掘机
- * 逻辑：遍历所有历史数据，找到与“上一期”各项特征（生肖、五行、波色、头数）相似的期数。
- * 统计这些相似期数的“下一期”都开出了什么，以此作为本期的推荐依据。
- */
 function mineHistoricalPatterns(allHistoryData) {
     const scores = {};
     // 初始化 1-49 号码得分
@@ -206,7 +201,7 @@ function mineHistoricalPatterns(allHistoryData) {
     const targetBose = getBose(targetIssue.special_code);
     const targetHead = getHead(targetIssue.special_code);
 
-    // 限制回溯最近 500 期，兼顾性能与准确度
+    // 限制回溯最近 500 期
     const limit = Math.min(allHistoryData.length - 1, 500);
     
     for (let i = 1; i < limit; i++) {
