@@ -69,7 +69,7 @@ const PredictionCard = ({ data, isHistory = false }) => {
                </div>
            </div>
            
-           {/* 一码阵简略 */}
+           {/* 尾数简略 */}
            <div className="bg-white p-2 rounded-lg border border-gray-200 flex flex-col justify-center items-center">
                 <div className="text-[10px] text-gray-400 mb-1">推荐尾数</div>
                 <div className="font-bold text-indigo-600 text-sm tracking-widest">
@@ -82,13 +82,28 @@ const PredictionCard = ({ data, isHistory = false }) => {
       <div className="bg-white/60 p-2 rounded-lg border border-gray-200 grid grid-cols-2 gap-2 text-[10px]">
           <div className="flex justify-between border-r border-gray-100 pr-2">
              <span className="text-gray-400">波色</span>
-             <span className={waveStyles[data.zhu_bo]?.class + " px-1 rounded font-bold"}>主{waveStyles[data.zhu_bo]?.label}</span>
+             <span className={(waveStyles[data.zhu_bo]?.class || 'text-gray-500') + " px-1 rounded font-bold"}>主{waveStyles[data.zhu_bo]?.label || '?'}</span>
           </div>
           <div className="flex justify-between pl-1">
              <span className="text-gray-400">形态</span>
              <span className="text-gray-700 font-bold bg-gray-100 px-1 rounded">{data.da_xiao}/{data.dan_shuang}</span>
           </div>
       </div>
+      
+      {/* 4. 一码阵 */}
+      {data.zodiac_one_code && data.zodiac_one_code.length > 0 && (
+          <div className="bg-white p-2 rounded-lg border border-gray-100">
+               <div className="text-[10px] text-center text-gray-400 mb-2">一码阵 (参考)</div>
+               <div className="grid grid-cols-5 gap-1">
+                   {data.zodiac_one_code.map((item,i) => (
+                       <div key={i} className="flex flex-col items-center">
+                           <span className="text-[9px] text-gray-400">{item.zodiac}</span>
+                           <div className="text-[10px] font-bold bg-gray-50 rounded px-1">{item.num}</div>
+                       </div>
+                   ))}
+               </div>
+          </div>
+      )}
     </div>
   );
 };
