@@ -3,7 +3,7 @@ import axios from 'axios';
 
 // --- Axios 实例配置 ---
 
-const API_BASE_URL = 'https://88.9526.ip-ddns.com/backend/api.php'; 
+const API_BASE_URL = 'https://9526.ip-ddns.com/api.php';
 
 // 创建一个公共的 axios 实例
 const apiClient = axios.create({

@@ -96,7 +96,7 @@ if (isset($update['message'])) {
 
 // 设置 Webhook 的一次性代码（需要手动执行或通过部署脚本调用）
 // 要设置 webhook，请访问以下 URL，替换您的真实信息:
-// https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://<YOUR_DOMAIN>/backend/bot.php
+// https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://9526.ip-ddns.com/bot.php
 
 if (isset($_GET['setup_webhook'])) {
     $bot_url = 'https://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
